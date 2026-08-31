@@ -1,0 +1,6 @@
+node_modules/
+.dev.vars
+wrangler.toml
+.wrangler/
+.wrangler-dry-run/
+.mirror-read-key.tmp

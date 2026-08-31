@@ -1,0 +1,16 @@
+name = "replace-with-your-worker-name"
+main = "src/index.js"
+compatibility_date = "2026-08-29"
+compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
+preview_urls = false
+
+[observability]
+enabled = false
+
+[[r2_buckets]]
+binding = "AI_MIRROR"
+bucket_name = "replace-with-your-r2-bucket-name"
+
+[[kv_namespaces]]
+binding = "OAUTH_KV"
+id = "replace-with-your-kv-namespace-id"

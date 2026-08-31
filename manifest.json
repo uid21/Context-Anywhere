@@ -1,0 +1,9 @@
+{
+  "id": "ai-bridge",
+  "name": "Context Anywhere AI Bridge",
+  "version": "0.4.0",
+  "minAppVersion": "1.8.7",
+  "description": "Mirror selected context and referenced attachments remotely and make them accessible to any MCP-compatible AI, keeping your knowledge readily accessible anywhere.",
+  "author": "uid21",
+  "isDesktopOnly": false
+}

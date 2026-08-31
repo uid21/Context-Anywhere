@@ -1,0 +1,21 @@
+{
+  "name": "obsidian-ai-mirror-worker",
+  "version": "4.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "wrangler deploy --dry-run --config wrangler.example.toml --outdir .wrangler-dry-run",
+    "dev": "wrangler dev --local",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@cloudflare/workers-oauth-provider": "^0.10.3",
+    "@modelcontextprotocol/server": "2.0.0",
+    "agents": "0.22.0",
+    "zod": "4.5.2"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "^2.0.0",
+    "wrangler": "4.127.1"
+  }
+}

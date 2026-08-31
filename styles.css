@@ -1,0 +1,5 @@
+/* AI Bridge intentionally uses Obsidian's native setting styles only. */
+.ai-bridge-clipboard-helper {
+  position: fixed;
+  opacity: 0;
+}

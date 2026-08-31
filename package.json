@@ -1,0 +1,23 @@
+{
+  "name": "obsidian-ai-bridge",
+  "version": "0.4.0",
+  "type": "module",
+  "private": true,
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "description": "An Obsidian plugin that mirrors and optionally syncs Markdown notes and referenced attachments through a compatible AI service.",
+  "scripts": {
+    "build": "node esbuild.config.mjs production",
+    "dev": "node esbuild.config.mjs",
+    "test": "node --test \"tests/*.test.js\"",
+    "test:worker": "npm --prefix worker test",
+    "check:worker": "npm --prefix worker run check",
+    "lint": "eslint src",
+    "check": "npm run test && npm run test:worker && npm run lint && npm run build && npm run check:worker"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "eslint": "10.9.1",
+    "eslint-plugin-obsidianmd": "0.4.2",
+    "obsidian": "1.13.1"
+  }
+}
