@@ -64,7 +64,7 @@ obsidian://new?vault=<vault>&file=<path>&content=<经过URL编码的内容>&appe
 
 ### 1. 安装 AI Bridge 插件
 
-从**Obsidian 社区插件：** 当前仍在审核，正式上架后可以直接从社区插件页面安装。
+从**Obsidian 社区插件：** https://community.obsidian.md/plugins/ai-bridge
 
 **手动安装：** 如果使用 Release 里的构建文件，复制下面三个文件：
 

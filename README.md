@@ -61,7 +61,7 @@ After the device completes the write, AI Bridge and any other sync system you co
 
 ### 1. Install the AI Bridge plugin
 
-From the **Obsidian Community Plugins**: the plugin is currently still under review. Once it is officially listed, it can be installed directly from the Community Plugins page.
+From the **Obsidian Community Plugins**: https://community.obsidian.md/plugins/ai-bridge
 
 **Manual installation:** if you use the build files from a Release, copy these three files:
 
