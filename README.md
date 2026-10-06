@@ -212,6 +212,10 @@ The authorization page is displayed by the AI Bridge Worker itself and asks for 
 
 After authorization, the AI receives a read-only OAuth Access Token rather than the Write Token used for uploading.
 
+Access tokens last one hour. Refresh credentials last 365 days from the initial token exchange, so compatible clients can renew access in the background during that year. Refreshing rotates the credential without extending its original expiry. Reauthorize after deploying this change: existing grants retain their previous expiry. Newly registered DCR clients also remain registered for 365 days from registration; older client records keep their original expiry. ChatGPT's CIMD metadata clients do not use these DCR records.
+
+The password form keeps CSP `form-action 'self'`. After consent, the Worker returns a script-free page that automatically navigates to the OAuth provider's validated callback, with a clickable fallback. This avoids Chromium blocking a cross-origin HTTP redirect in the password form's submission chain. Rotating `MIRROR_READ_KEY` changes REST read access and future consent logins; it does not revoke already-issued OAuth grants. Reauthorizing the same client replaces its previous grant.
+
 ### 9. Usage
 
 Use `@` — using GPT as an example — to invoke the plugin and describe what you need in plain language. Leave the rest to the AI.

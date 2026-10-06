@@ -215,6 +215,10 @@ https://<你的-worker-domain>/mcp
 
 通过后，AI 拿到的是只读 OAuth Access Token，而不是上传用的 Write Token。
 
+Access Token 有效期为 1 小时；Refresh Token 从首次兑换令牌起有效 365 天，支持的客户端可以在这一年内后台续期。每次续期会轮换令牌，但不会延长最初的截止时间。部署此改动后请重新授权，旧授权仍保留原到期时间。新注册的 DCR 客户端记录也从注册起保留 365 天，旧注册记录保留原到期时间；ChatGPT 使用的 CIMD 元数据客户端不依赖这些 DCR 记录。
+
+密码表单保留 CSP `form-action 'self'`。授权或拒绝后，Worker 返回无脚本的过渡页，自动导航到 OAuth Provider 已校验的客户端回调地址，并提供手动返回链接，避免 Chromium 把表单提交后的跨域 HTTP 重定向一起拦截。轮换 `MIRROR_READ_KEY` 会改变 REST 只读访问和未来的授权登录，但不会撤销已经签发的 OAuth 授权；对同一客户端重新授权会替换其旧授权。
+
 ### 9.使用方法
 
 使用 @ （以gpt为例） 调用插件并直接用人话说出你的需求，剩下的交给AI

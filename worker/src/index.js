@@ -3,6 +3,7 @@ import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
 import { createMcpHandler } from "agents/mcp/server";
 import { z } from "zod";
 import { noteReferencesAsset } from "./references.js";
+import { authorizationRedirect, escapeHtml, html, OAUTH_REFRESH_TOKEN_TTL } from "./oauth-response.js";
 
 const JSON_HEADERS = {
   "cache-control": "no-store",
@@ -34,31 +35,6 @@ function json(data, status = 200, extraHeaders = {}) {
   });
 }
 
-function html(body, status = 200, extraHeaders = {}) {
-  return new Response(body, {
-    status,
-    headers: {
-      "cache-control": "no-store",
-      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
-      "content-type": "text/html; charset=utf-8",
-      "referrer-policy": "no-referrer",
-      "x-content-type-options": "nosniff",
-      "x-frame-options": "DENY",
-      ...extraHeaders,
-    },
-  });
-}
-
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (character) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;",
-  })[character]);
-}
-
 function cookieValue(request, name) {
   const cookie = request.headers.get("cookie") || "";
   for (const part of cookie.split(";")) {
@@ -88,7 +64,9 @@ function authorizationErrorRedirect(oauthRequest, error, description) {
   redirect.searchParams.set("error_description", description);
   redirect.searchParams.set("state", oauthRequest.state);
   if (oauthRequest.issuer) redirect.searchParams.set("iss", oauthRequest.issuer);
-  return Response.redirect(redirect.toString(), 302);
+  return authorizationRedirect(redirect.toString(), {
+    "set-cookie": `${CSRF_COOKIE}=; HttpOnly; Secure; Path=/; SameSite=Lax; Max-Age=0`,
+  });
 }
 
 function renderAuthorizationPage(request, client, csrf, error = "", status = 200) {
@@ -686,14 +664,21 @@ async function handleAuthorization(request, env) {
   }
 
   const grantedScopes = oauthRequest.scope.filter((scope) => scope === OAUTH_SCOPE);
-  const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
-    request: oauthRequest,
-    userId: "obsidian-vault-owner",
-    metadata: { clientName: client.clientName || "ChatGPT MCP client" },
-    scope: grantedScopes,
-    props: { access: "read" },
-  });
-  return Response.redirect(redirectTo, 302);
+  try {
+    const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
+      request: oauthRequest,
+      userId: "obsidian-vault-owner",
+      metadata: { clientName: client.clientName || "ChatGPT MCP client" },
+      scope: grantedScopes,
+      props: { access: "read" },
+    });
+    return authorizationRedirect(redirectTo, {
+      "set-cookie": `${CSRF_COOKIE}=; HttpOnly; Secure; Path=/; SameSite=Lax; Max-Age=0`,
+    });
+  } catch {
+    console.error("OAuth authorization completion failed");
+    return html("<h1>授权暂时失败</h1><p>请返回客户端重新连接。如果仍然失败，请查看 Worker 日志。</p>", 503);
+  }
 }
 
 const mcpApiHandler = {
@@ -727,6 +712,10 @@ export default new OAuthProvider({
   allowPlainPKCE: false,
   allowImplicitFlow: false,
   clientIdMetadataDocumentEnabled: true,
+  accessTokenTTL: 60 * 60,
+  refreshTokenTTL: OAUTH_REFRESH_TOKEN_TTL,
+  // DCR clients must not disappear after the provider's default 90 days.
+  clientRegistrationTTL: OAUTH_REFRESH_TOKEN_TTL,
   // When resourceMetadata is omitted, the provider derives the public origin
   // and canonical /mcp resource from each request instead of hard-coding a deployment URL.
 });
