@@ -61,6 +61,12 @@ obsidian://new?vault=<vault>&file=<path>&content=<经过URL编码的内容>&appe
 
 ## 快速部署
 
+### Windows 安装向导（预览）
+
+从 [Windows Setup Release](https://github.com/uid21/Context-Anywhere/releases/tag/windows-setup-v0.1.0) 下载 `Context-Anywhere-Setup-0.1.0-x64.exe`。安装后打开原生 Windows 向导，确认 Cloudflare 账号与已启用的 AI Bridge 插件，再选择知识库、同步范围和各项设置。向导会创建独立的 Worker、R2、OAuth KV，并把设置加密导入 Obsidian；无需安装 Node/npm，也无需启动本地网页服务。
+
+ChatGPT 支持 Chrome DevTools 自动接入，其他 AI 提供可复制的 MCP/OAuth 配置。自动接入要求账号支持自定义 MCP，并使用专用 Chrome 会话或已开放的本机调试端口。插件 0.4.1 支持导入后首次同步；0.4.0 可导入，但需要手动点击同步。详见 [Windows 向导说明](installer/README.md)。安装包暂未签名。
+
 
 ### 1. 安装 AI Bridge 插件
 

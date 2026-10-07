@@ -1,0 +1,14 @@
+{
+  "name": "context-anywhere-setup",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "scripts": {
+    "start": "node src/bridge.mjs",
+    "test": "node --test test/*.test.mjs",
+    "build": "node scripts/build.mjs",
+    "package:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package.ps1"
+  },
+  "dependencies": { "playwright-core": "1.58.2" }
+}

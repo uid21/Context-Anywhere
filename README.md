@@ -4,6 +4,8 @@
 
 [中文](README.zh-CN.md) · **English**
 
+**Windows setup preview:** download the native x64 `.exe` from the [Windows Setup release](https://github.com/uid21/Context-Anywhere/releases/tag/windows-setup-v0.1.0). Choose your vault and sync options in the wizard; it provisions independent Cloudflare resources and imports encrypted settings. No Node/npm installation or local web UI server is required. ChatGPT supports local Chrome DevTools automation; other AI clients get copyable MCP/OAuth configuration. See [Windows setup details](installer/README.md), including Chrome/account requirements and the current unsigned-package status.
+
 
 ## Overview
 

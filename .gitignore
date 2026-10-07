@@ -6,4 +6,9 @@ data.json
 Thumbs.db
 .idea/
 .vscode/
+installer/dist/
+installer/payload/
+installer/test-output/
+installer/.tools/
+worker/.wrangler-dry-run/
 

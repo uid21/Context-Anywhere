@@ -1386,12 +1386,20 @@ var AIBridgePlugin = class extends import_obsidian.Plugin {
     return Object.fromEntries(parsed.searchParams.entries());
   }
   async handleTransferImport(params) {
+    var _a, _b;
     if (params.func !== "settings" || params.v !== TRANSFER_VERSION) {
       throw new Error(this.t("error.unsupportedLinkVersion"));
     }
     if (!params.salt || !params.iv || !params.data) throw new Error(this.t("error.incompleteLink"));
     const sourceVault = String(params.vault || "");
     const currentVault = this.app.vault.getName();
+    if (params.setup === "1" && params.path) {
+      const selectedPath = String(params.path).replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+      const currentPath = String(((_b = (_a = this.app.vault.adapter).getBasePath) == null ? void 0 : _b.call(_a)) || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+      if (!currentPath || selectedPath !== currentPath) {
+        throw new Error("Open the vault selected in the Windows installer before importing settings.");
+      }
+    }
     if (sourceVault && sourceVault !== currentVault) {
       const confirmed = await openConfirmModal(
         this.app,
@@ -1416,7 +1424,7 @@ var AIBridgePlugin = class extends import_obsidian.Plugin {
     }
     this.settings = normalizeSettings(Object.assign({}, payload, {
       deviceId: this.settings.deviceId || runtimeWindow().crypto.randomUUID(),
-      deviceName: this.settings.deviceName,
+      deviceName: payload.installerSetup === true ? payload.deviceName : this.settings.deviceName,
       syncState: { notes: {}, assets: {} },
       pendingDeletes: { notes: {}, assets: {} },
       lastPeriodicSyncAt: 0,
@@ -1426,6 +1434,10 @@ var AIBridgePlugin = class extends import_obsidian.Plugin {
     }));
     await this.persistSettings();
     new import_obsidian.Notice(this.t("notice.imported"));
+    if (payload.installerSetup === true) {
+      await this.testConnection();
+      await this.runPreferredSync(true);
+    }
   }
 };
 var AIBridgeSettingTab = class extends import_obsidian.PluginSettingTab {

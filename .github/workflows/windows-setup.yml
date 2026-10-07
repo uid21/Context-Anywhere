@@ -1,0 +1,57 @@
+name: Windows setup release
+on:
+  workflow_dispatch:
+  push:
+    tags: ['windows-setup-v*']
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify setup tag
+        if: startsWith(github.ref, 'refs/tags/windows-setup-v')
+        shell: pwsh
+        run: |
+          $setupVersion = (Get-Content installer/package.json -Raw | ConvertFrom-Json).version
+          if ($env:GITHUB_REF_NAME -ne "windows-setup-v$setupVersion") {
+            throw 'Setup release tag must match installer/package.json'
+          }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            installer/package-lock.json
+            worker/package-lock.json
+      - run: npm ci
+      - run: npm --prefix worker ci
+      - run: npm --prefix installer ci
+      - run: npm run check
+      - run: npm run test:installer
+      - run: npm run build:installer
+      - name: Install NSIS
+        run: choco install nsis --version=3.11 -y --no-progress
+      - run: npm run package:windows
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Context-Anywhere-Windows-Setup
+          path: |
+            installer/dist/Context-Anywhere-Setup-*-x64.exe
+            installer/dist/SHA256SUMS.txt
+      - name: Draft Windows release
+        if: startsWith(github.ref, 'refs/tags/windows-setup-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          prerelease: true
+          name: Context Anywhere Windows Setup
+          body_path: installer/RELEASE-NOTES.md
+          files: |
+            installer/dist/Context-Anywhere-Setup-*-x64.exe
+            installer/dist/SHA256SUMS.txt
+            main.js
+            manifest.json
+            styles.css

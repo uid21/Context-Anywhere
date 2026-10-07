@@ -1,6 +1,6 @@
 {
   "name": "obsidian-ai-bridge",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "type": "module",
   "private": true,
   "license": "PolyForm-Noncommercial-1.0.0",
@@ -12,7 +12,10 @@
     "test:worker": "npm --prefix worker test",
     "check:worker": "npm --prefix worker run check",
     "lint": "eslint src",
-    "check": "npm run test && npm run test:worker && npm run lint && npm run build && npm run check:worker"
+    "check": "npm run test && npm run test:worker && npm run lint && npm run build && npm run check:worker",
+    "test:installer": "npm --prefix installer test",
+    "build:installer": "npm --prefix installer run build",
+    "package:windows": "npm --prefix installer run package:windows"
   },
   "devDependencies": {
     "esbuild": "0.28.2",
