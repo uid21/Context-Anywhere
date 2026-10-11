@@ -13,6 +13,7 @@ import {
 import { createTranslator, detectLocale } from "./i18n.js";
 import { isConfigPath, isConflictPath, normalizePrefix, shouldMirrorPath } from "./rules.js";
 import { decideSyncAction, makeConflictPath, remoteSnapshot, stateFrom } from "./sync.js";
+import { consumeSetupImport } from "./setup-import.js";
 
 const SERVER_MAX_ATTACHMENT_MIB = 8;
 const TRANSFER_VERSION = "1";
@@ -883,12 +884,24 @@ class AIBridgePlugin extends Plugin {
   }
 
   async handleTransferImport(params) {
+    if (params.func === "setup") {
+      const payload = await consumeSetupImport(this.app.vault.adapter, this.app.vault.configDir, params);
+      await this.applyImportedSettings(payload);
+      return;
+    }
     if (params.func !== "settings" || params.v !== TRANSFER_VERSION) {
       throw new Error(this.t("error.unsupportedLinkVersion"));
     }
     if (!params.salt || !params.iv || !params.data) throw new Error(this.t("error.incompleteLink"));
     const sourceVault = String(params.vault || "");
     const currentVault = this.app.vault.getName();
+    if (params.setup === "1" && params.path) {
+      const selectedPath = String(params.path).replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+      const currentPath = String(this.app.vault.adapter.getBasePath?.() || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+      if (!currentPath || selectedPath !== currentPath) {
+        throw new Error("Open the vault selected in the Windows installer before importing settings.");
+      }
+    }
     if (sourceVault && sourceVault !== currentVault) {
       const confirmed = await openConfirmModal(
         this.app,
@@ -911,9 +924,13 @@ class AIBridgePlugin extends Plugin {
     } catch {
       throw new Error(this.t("error.decryptFailed"));
     }
+    await this.applyImportedSettings(payload);
+  }
+
+  async applyImportedSettings(payload) {
     this.settings = normalizeSettings(Object.assign({}, payload, {
       deviceId: this.settings.deviceId || runtimeWindow().crypto.randomUUID(),
-      deviceName: this.settings.deviceName,
+      deviceName: payload.installerSetup === true ? payload.deviceName : this.settings.deviceName,
       syncState: { notes: {}, assets: {} },
       pendingDeletes: { notes: {}, assets: {} },
       lastPeriodicSyncAt: 0,
@@ -923,6 +940,10 @@ class AIBridgePlugin extends Plugin {
     }));
     await this.persistSettings();
     new Notice(this.t("notice.imported"));
+    if (payload.installerSetup === true) {
+      await this.testConnection();
+      await this.runPreferredSync(true);
+    }
   }
 }
 

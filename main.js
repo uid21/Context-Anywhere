@@ -573,6 +573,40 @@ function stateFrom(local, cloud) {
   };
 }
 
+// src/setup-import.js
+var pending = /* @__PURE__ */ new WeakMap();
+var normalizePath = (value) => String(value || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+async function consumeSetupImport(adapter, configDir, params, now = Date.now()) {
+  var _a;
+  if (params.v !== "1" || !/^[a-f0-9]{48}$/.test(params.id || "")) throw new Error("Invalid setup link.");
+  const vaultPath = normalizePath((_a = adapter.getBasePath) == null ? void 0 : _a.call(adapter));
+  if (!vaultPath || normalizePath(params.path) !== vaultPath) throw new Error("Open the vault selected in the setup wizard.");
+  let active = pending.get(adapter);
+  if (!active) {
+    active = /* @__PURE__ */ new Set();
+    pending.set(adapter, active);
+  }
+  if (active.has(params.id)) throw new Error("Setup import is already in progress.");
+  active.add(params.id);
+  const file = `${configDir}/plugins/ai-bridge/setup-${params.id}.json`;
+  try {
+    const record = JSON.parse(await adapter.read(file));
+    if (record.version !== 1 || normalizePath(record.vaultPath) !== vaultPath) throw new Error("Setup belongs to another vault.");
+    if (!Number.isFinite(record.expiresAt) || record.expiresAt <= now || record.expiresAt > now + 12e4) {
+      await adapter.remove(file);
+      throw new Error("Setup link expired. Return to the wizard and import again.");
+    }
+    const settings = record.settings;
+    if (!settings || !/^https:\/\/[a-z0-9.-]+\.workers\.dev$/.test(settings.workerUrl || "") || typeof settings.token !== "string" || settings.token.length < 20 || !Array.isArray(settings.includePrefixes) || settings.includePrefixes.some((prefix) => typeof prefix !== "string" || prefix.split(/[\\/]/).some((part) => part === ".." || part === "."))) {
+      throw new Error("Invalid setup settings.");
+    }
+    await adapter.remove(file);
+    return { ...settings, installerSetup: true };
+  } finally {
+    active.delete(params.id);
+  }
+}
+
 // src/main.js
 var SERVER_MAX_ATTACHMENT_MIB = 8;
 var TRANSFER_VERSION = "1";
@@ -1386,12 +1420,25 @@ var AIBridgePlugin = class extends import_obsidian.Plugin {
     return Object.fromEntries(parsed.searchParams.entries());
   }
   async handleTransferImport(params) {
+    var _a, _b;
+    if (params.func === "setup") {
+      const payload2 = await consumeSetupImport(this.app.vault.adapter, this.app.vault.configDir, params);
+      await this.applyImportedSettings(payload2);
+      return;
+    }
     if (params.func !== "settings" || params.v !== TRANSFER_VERSION) {
       throw new Error(this.t("error.unsupportedLinkVersion"));
     }
     if (!params.salt || !params.iv || !params.data) throw new Error(this.t("error.incompleteLink"));
     const sourceVault = String(params.vault || "");
     const currentVault = this.app.vault.getName();
+    if (params.setup === "1" && params.path) {
+      const selectedPath = String(params.path).replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+      const currentPath = String(((_b = (_a = this.app.vault.adapter).getBasePath) == null ? void 0 : _b.call(_a)) || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+      if (!currentPath || selectedPath !== currentPath) {
+        throw new Error("Open the vault selected in the Windows installer before importing settings.");
+      }
+    }
     if (sourceVault && sourceVault !== currentVault) {
       const confirmed = await openConfirmModal(
         this.app,
@@ -1414,9 +1461,12 @@ var AIBridgePlugin = class extends import_obsidian.Plugin {
     } catch (e) {
       throw new Error(this.t("error.decryptFailed"));
     }
+    await this.applyImportedSettings(payload);
+  }
+  async applyImportedSettings(payload) {
     this.settings = normalizeSettings(Object.assign({}, payload, {
       deviceId: this.settings.deviceId || runtimeWindow().crypto.randomUUID(),
-      deviceName: this.settings.deviceName,
+      deviceName: payload.installerSetup === true ? payload.deviceName : this.settings.deviceName,
       syncState: { notes: {}, assets: {} },
       pendingDeletes: { notes: {}, assets: {} },
       lastPeriodicSyncAt: 0,
@@ -1426,6 +1476,10 @@ var AIBridgePlugin = class extends import_obsidian.Plugin {
     }));
     await this.persistSettings();
     new import_obsidian.Notice(this.t("notice.imported"));
+    if (payload.installerSetup === true) {
+      await this.testConnection();
+      await this.runPreferredSync(true);
+    }
   }
 };
 var AIBridgeSettingTab = class extends import_obsidian.PluginSettingTab {

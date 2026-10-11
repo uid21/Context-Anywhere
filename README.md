@@ -4,6 +4,8 @@
 
 [中文](README.zh-CN.md) · **English**
 
+**Windows setup preview:** download the portable Windows ZIP from [Releases](https://github.com/uid21/Context-Anywhere/releases), extract it and run `ContextAnywhere.exe`. The wizard deploys independent Cloudflare resources, imports connection settings into Obsidian, and opens ChatGPT in your default browser with copyable connection fields. Includes light, dark and system appearance. See [Windows setup details](installer/README.md).
+
 
 ## Overview
 
@@ -58,6 +60,11 @@ After the device completes the write, AI Bridge and any other sync system you co
 
 ## Quick Deployment
 
+### Windows Installation Wizard
+
+Download the Windows ZIP from [Releases](https://github.com/uid21/Context-Anywhere/releases), extract it completely, and double-click `ContextAnywhere.exe`. No installation is required. The wizard provides account and plugin guidelines to help you select the sync scope, deploy a standalone image, and import connection settings into Obsidian.
+
+For details, see the [Windows Wizard Guide](installer/README.md).
 
 ### 1. Install the AI Bridge plugin
 

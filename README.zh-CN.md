@@ -61,6 +61,12 @@ obsidian://new?vault=<vault>&file=<path>&content=<经过URL编码的内容>&appe
 
 ## 快速部署
 
+### Windows 安装向导
+
+从 [Releases](https://github.com/uid21/Context-Anywhere/releases) 下载 Windows ZIP，完整解压后双击 `ContextAnywhere.exe`，无需安装。向导提供账号和插件指引，帮助你选择同步范围、部署独立镜像，并将连接设置导入 Obsidian。
+
+详见 [Windows 向导说明](installer/README.md)。
+
 
 ### 1. 安装 AI Bridge 插件
 
