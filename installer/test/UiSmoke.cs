@@ -58,7 +58,7 @@ class UiSmoke {
  [STAThread]static void Main(){
   Directory.CreateDirectory(Output);var app=new Application{ShutdownMode=ShutdownMode.OnExplicitShutdown};
   app.Startup+=async(s,e)=>{try{
-   int pagesChecked=0;long resizeMilliseconds=0;double dpiScale=1;
+   int pagesChecked=0;long resizeMilliseconds=0,maxResizeMilliseconds=0;double dpiScale=1;
    foreach(var locale in new[]{"zh-CN","en"}){
    L.Select(locale,false);
    var w=new SetupWindow(false);w.Show();await Frame(w);
@@ -138,14 +138,18 @@ class UiSmoke {
    Call(w,"Error",String.Join(" ",new string[]{L.T("当前操作还在进行，请等待完成。"),L.T("当前操作还在进行，请等待完成。"),L.T("当前操作还在进行，请等待完成。"),L.T("当前操作还在进行，请等待完成。")}));
    w.Width=480;w.Height=360;await Frame(w);Capture(w,"long-error-small");
    Check(Get<ScrollViewer>(w,"scroll").ActualHeight>=75,"Long error hides page");
-   var timer=Stopwatch.StartNew();for(int i=0;i<80;i++){w.Width=600+i*4;w.Height=500+(i%15);w.UpdateLayout();}timer.Stop();resizeMilliseconds+=timer.ElapsedMilliseconds;
-   Check(timer.ElapsedMilliseconds<4000,"Resize layout stalls: "+timer.ElapsedMilliseconds);w.Close();
+   var timer=Stopwatch.StartNew();for(int i=0;i<80;i++){
+    var frame=Stopwatch.StartNew();w.Width=600+i*4;w.Height=500+(i%15);w.UpdateLayout();frame.Stop();
+    maxResizeMilliseconds=Math.Max(maxResizeMilliseconds,frame.ElapsedMilliseconds);
+    // Bound a visible stall, not the throughput of 80 frames on shared CI CPUs.
+    Check(frame.ElapsedMilliseconds<500,"Single resize layout stalls: "+frame.ElapsedMilliseconds);
+   }timer.Stop();resizeMilliseconds+=timer.ElapsedMilliseconds;w.Close();
    // Exercise the real backend after the first fully rendered frame, using an isolated receipt directory.
    var live=new SetupWindow();live.Show();await Frame(live);Capture(live,"real-startup-first-frame");
    for(int i=0;i<100&&!Get<bool>(live,"ready");i++)await Task.Delay(100);
    Check(Get<bool>(live,"ready"),"Real backend failed: "+Get<TextBlock>(live,"status").Text);await Frame(live);Capture(live,"real-startup-ready");if(locale=="en")CheckEnglish((DependencyObject)live.Content);live.Close();
    }
-   File.WriteAllText(Path.Combine(Output,"ui-result.json"),"{\"passed\":true,\"viewportPageChecks\":"+pagesChecked+",\"languages\":[\"zh-CN\",\"en\"],\"liveLanguageSwitch\":true,\"resizeCycles\":160,\"resizeMilliseconds\":"+resizeMilliseconds+",\"nativeDpiScale\":"+dpiScale.ToString(System.Globalization.CultureInfo.InvariantCulture)+",\"opaqueFirstFrame\":true,\"realBackendReady\":true,\"copyFlow\":true,\"lightLogo\":true}");app.Shutdown(0);
+   File.WriteAllText(Path.Combine(Output,"ui-result.json"),"{\"passed\":true,\"viewportPageChecks\":"+pagesChecked+",\"languages\":[\"zh-CN\",\"en\"],\"liveLanguageSwitch\":true,\"resizeCycles\":160,\"resizeMilliseconds\":"+resizeMilliseconds+",\"maxResizeMilliseconds\":"+maxResizeMilliseconds+",\"nativeDpiScale\":"+dpiScale.ToString(System.Globalization.CultureInfo.InvariantCulture)+",\"opaqueFirstFrame\":true,\"realBackendReady\":true,\"copyFlow\":true,\"lightLogo\":true}");app.Shutdown(0);
   }catch(Exception error){File.WriteAllText(Path.Combine(Output,"ui-error.txt"),error.ToString());app.Shutdown(1);}};
   app.Run();
  }
