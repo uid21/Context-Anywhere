@@ -2,6 +2,8 @@
 
 下载 ZIP 后完整解压，双击根目录的 `ContextAnywhere.exe` 即可运行。程序和依赖放在同一个文件夹内，不需要安装，不写入卸载登记，也不需要另装 Node.js。
 
+首次启动按 Windows 界面语言选择简体中文或 English，也可以在右上角手动切换；选择会保存到本机。切换不会清空已填写的选项或改变当前步骤。
+
 需要 Windows 10/11 x64、已启用 R2 的 Cloudflare 账号，以及已安装并启用 AI Bridge的 Obsidian 知识库。
 
 1. 选择知识库。首页提供 Cloudflare 注册、R2 启用和 Obsidian 社区插件页面的链接。
@@ -28,21 +30,20 @@ R2 标准存储每月包含 10 GB·月存储、100 万次 A 类操作（如写�
 
 读取密码只在镜像授权页面输入；导出的连接说明不含密钥。删除程序文件夹不会删除知识库、云端资源或部署记录。程序尚未签名，Windows 可能显示未知发布者提示。
 
-## 构建
+## English
 
-在仓库根目录运行：
+Extract the entire ZIP and run `ContextAnywhere.exe`. The portable app includes its own Node.js runtime. It needs Windows 10/11 x64, a Cloudflare account with R2 enabled, and an Obsidian vault with AI Bridge installed and enabled.
 
-```powershell
-npm ci
-npm --prefix worker ci
-npm --prefix installer ci
-npm run check
-npm run test:installer
-npm run build:installer
-npm run package:windows
-npm --prefix installer run test:ui
-```
+Setup initially follows your Windows display language (Chinese or English). Use the language selector at the top right to switch at any time between operations. The choice is remembered; your entries, selections, and current step are preserved. Light, dark, and system themes are available beside it.
 
-需要 Windows 自带的 .NET Framework C# 编译器。构建会下载 Node.js 22.23.3 并核对官方 SHA256。输出 `installer/dist/Context-Anywhere-0.2.3-win-x64.zip` 和 `SHA256SUMS.txt`。
+1. Confirm your account and plugin are ready, choose your vault, and select **Check vault and plugin**. Links to Cloudflare, R2 setup, and the Obsidian community plugin are on this page.
+2. Sign in to Cloudflare in your default browser, authorize, then choose an account in setup. API Token is an alternative; leave it empty after browser authorization.
+3. Choose the notes, device name, attachment limits, and sync options. Previewing does not upload notes. Two-way sync is optional.
+4. Select **Deploy your mirror**, then **Import into Obsidian**. Keep Obsidian open and check the import result. The plugin saves the connection, checks it, and starts syncing.
+5. Copy the MCP URL, name, and read password to connect ChatGPT, or choose **Other AI**. Follow the instructions to complete OAuth in your browser. Every connection step stays accessible even if opening the browser fails. JSON and Codex configuration are under **More client configurations**.
 
-向导使用 Windows 自带的 WPF，后台通过私有管道工作。Cloudflare 登录会临时接收本机 OAuth 回调，浏览器始终使用 Windows 默认设置。
+Update AI Bridge through the Obsidian community plugins page when requested. Alternatively, close Obsidian and copy the three files from `obsidian-plugin` into that vault's plugin folder, preserving its existing `data.json`.
+
+Each deployment uses separate Worker, R2, and OAuth KV resources. Cloudflare credentials stay in the current session. Mirror keys and deployment records use Windows DPAPI in `%LOCALAPPDATA%\ContextAnywhereSetup\deployment.dpapi`. Exported connection instructions contain no passwords. Deleting the app folder does not delete your vault, cloud resources, or deployment record. This preview is unsigned.
+
+R2 Standard includes 10 GB-month of storage, 1 million Class A operations, and 10 million Class B operations per month, with free egress. Check [Cloudflare pricing](https://developers.cloudflare.com/r2/pricing/) for usage above those allowances.

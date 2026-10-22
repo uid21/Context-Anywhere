@@ -1,3 +1,4 @@
+import { t, SetupError } from './language.mjs';
 import { readFile, readdir, realpath, stat, writeFile, rm } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
@@ -5,16 +6,16 @@ import { shouldMirrorPath, isConfigPath, isConflictPath } from '../../src/rules.
 import { powershell } from './storage.mjs';
 
 export async function inspectVault(directory, configDir = '.obsidian') {
-  if (!directory || !path.isAbsolute(directory)) throw new Error('请选择 Obsidian 知识库所在的完整目录。');
-  if (!/^[^\\/:*?"<>|]+$/.test(configDir) || configDir === '.' || configDir === '..') throw new Error('Obsidian 配置目录名称无效。');
+  if (!directory || !path.isAbsolute(directory)) throw new SetupError("请选择 Obsidian 知识库所在的完整目录。", "Select the full path to your Obsidian vault.");
+  if (!/^[^\\/:*?"<>|]+$/.test(configDir) || configDir === '.' || configDir === '..') throw new SetupError("Obsidian 配置目录名称无效。", "The Obsidian configuration folder name is invalid.");
   const root = await realpath(directory);
   const pluginDir = path.join(root, configDir, 'plugins', 'ai-bridge');
   let manifest;
   try {
     manifest = JSON.parse(await readFile(path.join(pluginDir, 'manifest.json'), 'utf8'));
     await stat(path.join(pluginDir, 'main.js'));
-  } catch { throw new Error('这个知识库尚未安装 AI Bridge。请在 Obsidian 社区插件中安装并启用，再回来检查。'); }
-  if (manifest.id !== 'ai-bridge') throw new Error('插件标识不匹配。');
+  } catch { throw new SetupError("这个知识库尚未安装 AI Bridge。请在 Obsidian 社区插件中安装并启用，再回来检查。", "AI Bridge is not installed in this vault. Install and enable it in Obsidian Community plugins, then check again."); }
+  if (manifest.id !== 'ai-bridge') throw new SetupError("插件标识不匹配。", "The plugin identifier does not match.");
   const enabled = await readFile(path.join(root, configDir, 'community-plugins.json'), 'utf8').then(JSON.parse).catch(() => []);
   const version = String(manifest.version).split('.').map(Number);
   const localImportSupported = version[0] > 0 || version[1] > 4 || (version[1] === 4 && version[2] >= 2);
@@ -22,16 +23,16 @@ export async function inspectVault(directory, configDir = '.obsidian') {
 }
 
 export function settingsFrom(options) {
-  if (typeof options.deviceName !== 'string' || !options.deviceName.trim() || options.deviceName.length > 100) throw new Error('请填写设备名称（最多 100 字）。');
+  if (typeof options.deviceName !== 'string' || !options.deviceName.trim() || options.deviceName.length > 100) throw new SetupError("请填写设备名称（最多 100 字）。", "Enter a device name (up to 100 characters).");
   const prefixes = String(options.includePrefixes || '').split(/\r?\n/).map(x => x.trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')).filter(Boolean);
-  if (prefixes.some(x => x.split('/').some(p => ['.', '..'].includes(p)) || /^[A-Za-z]:/.test(x))) throw new Error('镜像目录需为知识库内的相对路径，不能包含 ..。');
+  if (prefixes.some(x => x.split('/').some(p => ['.', '..'].includes(p)) || /^[A-Za-z]:/.test(x))) throw new SetupError("镜像目录需为知识库内的相对路径，不能包含 ..。", "Sync paths must be relative to the vault and must not contain .. .");
   const interval = Number(options.autoSyncIntervalMinutes ?? 15);
   const maxAttachment = Number(options.maxAttachmentMiB ?? 8);
   const debounce = Number(options.debounceMs ?? 1200);
-  if (!Number.isInteger(interval) || interval < 1 || interval > 1440) throw new Error('定时同步间隔需为 1–1440 分钟。');
-  if (maxAttachment < 1 || maxAttachment > 8 || !Number.isFinite(maxAttachment)) throw new Error('附件上限需为 1–8 MiB。');
-  if (!Number.isInteger(debounce) || debounce < 250 || debounce > 10000) throw new Error('修改后等待时间需为 250–10000 毫秒。');
-  if (!prefixes.length && options.mirrorAll !== true) throw new Error('请填写要同步的文件夹或笔记，或勾选同步全部 Markdown 笔记。');
+  if (!Number.isInteger(interval) || interval < 1 || interval > 1440) throw new SetupError("定时同步间隔需为 1–1440 分钟。", "The scheduled sync interval must be 1–1440 minutes.");
+  if (maxAttachment < 1 || maxAttachment > 8 || !Number.isFinite(maxAttachment)) throw new SetupError("附件上限需为 1–8 MiB。", "The attachment limit must be 1–8 MiB.");
+  if (!Number.isInteger(debounce) || debounce < 250 || debounce > 10000) throw new SetupError("修改后等待时间需为 250–10000 毫秒。", "The delay after an edit must be 250–10000 milliseconds.");
+  if (!prefixes.length && options.mirrorAll !== true) throw new SetupError("请填写要同步的文件夹或笔记，或勾选同步全部 Markdown 笔记。", "Enter the folders or notes to sync, or select Sync all Markdown notes.");
   return { includePrefixes: prefixes, deviceName: options.deviceName.trim(), debounceMs: debounce,
     syncOnChange: options.syncOnChange !== false, autoSyncEnabled: options.autoSyncEnabled === true,
     autoSyncIntervalMinutes: interval, syncAttachments: options.syncAttachments === true, maxAttachmentMiB: maxAttachment,
@@ -53,8 +54,8 @@ export async function previewVault(vault, settings) {
 }
 
 export async function prepareImport(vault, settings) {
-  if (!vault.enabled) throw new Error('请先在选中的知识库启用 AI Bridge。');
-  if (!vault.localImportSupported) throw new Error('当前 AI Bridge 版本暂不支持向导导入。请更新插件，重新打开 Obsidian 后重试。');
+  if (!vault.enabled) throw new SetupError("请先在选中的知识库启用 AI Bridge。", "Enable AI Bridge in the selected vault first.");
+  if (!vault.localImportSupported) throw new SetupError("当前 AI Bridge 版本暂不支持向导导入。请更新插件，重新打开 Obsidian 后重试。", "This version of AI Bridge does not support setup import. Update the plugin, reopen Obsidian, and try again.");
   const id = randomBytes(24).toString('hex');
   const directory = path.join(vault.path, vault.configDir, 'plugins', 'ai-bridge');
   // Remove only expired handoffs from this plugin's directory, including those

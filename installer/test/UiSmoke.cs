@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -31,45 +32,54 @@ class UiSmoke {
   }
   return snapshot.GetFormats(false).Length==0?null:snapshot;
  }
- static void RestoreClipboard(IDataObject original){
+ static async Task RestoreClipboard(IDataObject original){
   if(original==null)return;
-  for(int attempt=0;attempt<6;attempt++){
+  for(int attempt=0;attempt<20;attempt++){
    try{Clipboard.SetDataObject(original,true);return;}
-   catch(System.Runtime.InteropServices.COMException error){if(error.ErrorCode!=unchecked((int)0x800401D0)||attempt==5)throw;}
-   System.Threading.Thread.Sleep(100);
+   catch(System.Runtime.InteropServices.COMException error){if(error.ErrorCode!=unchecked((int)0x800401D0)||attempt==19)throw;}
+   // Yield the STA dispatcher so clipboard owners can finish delayed rendering.
+   await Task.Delay(100);
   }
  }
  static void Capture(SetupWindow w,string name,double scale=1){
   var root=(FrameworkElement)w.Content;
   var bitmap=new RenderTargetBitmap((int)Math.Ceiling(root.ActualWidth*scale),(int)Math.Ceiling(root.ActualHeight*scale),96*scale,96*scale,PixelFormats.Pbgra32);
   bitmap.Render(root);var encoder=new PngBitmapEncoder();encoder.Frames.Add(BitmapFrame.Create(bitmap));
-  using(var file=File.Create(Path.Combine(Output,name+".png")))encoder.Save(file);
+  using(var file=File.Create(Path.Combine(Output,L.Language+"-"+name+".png")))encoder.Save(file);
   var pixels=new byte[bitmap.PixelWidth*bitmap.PixelHeight*4];bitmap.CopyPixels(pixels,bitmap.PixelWidth*4,0);
   // WPF's antialiasing can round a composed opaque edge down to alpha 254.
   for(int i=3;i<pixels.Length;i+=4)Check(pixels[i]>=254,"Transparent startup pixel: "+name);
  }
+ static void CheckEnglish(DependencyObject node){
+  var label=node as TextBlock;
+  if(label!=null&&label.IsVisible&&label.Text!="简体中文")Check(!Regex.IsMatch(label.Text,"[\u3400-\u9fff]"),"Untranslated English UI: "+label.Text);
+  for(int i=0;i<VisualTreeHelper.GetChildrenCount(node);i++)CheckEnglish(VisualTreeHelper.GetChild(node,i));
+ }
  [STAThread]static void Main(){
   Directory.CreateDirectory(Output);var app=new Application{ShutdownMode=ShutdownMode.OnExplicitShutdown};
   app.Startup+=async(s,e)=>{try{
+   int pagesChecked=0;long resizeMilliseconds=0;double dpiScale=1;
+   foreach(var locale in new[]{"zh-CN","en"}){
+   L.Select(locale,false);
    var w=new SetupWindow(false);w.Show();await Frame(w);
    Check(w.Width<=SystemParameters.WorkArea.Width&&w.Height<=SystemParameters.WorkArea.Height,"Startup exceeds work area");
-   var dpiScale=PresentationSource.FromVisual(w).CompositionTarget.TransformToDevice.M11;
+   dpiScale=PresentationSource.FromVisual(w).CompositionTarget.TransformToDevice.M11;
    Get<ComboBox>(w,"theme").SelectedIndex=1;await Frame(w);Capture(w,"light-startup");
    Check(((SolidColorBrush)Get<TextBlock>(w,"logo").Foreground).Color==Color.FromRgb(23,107,145),"Light logo color");
-   var cases=new[]{new Size(1040,800),new Size(1040,400),new Size(900,512),new Size(640,420),new Size(480,360)};int pagesChecked=0;
+   var cases=new[]{new Size(1040,800),new Size(1040,400),new Size(900,512),new Size(640,420),new Size(480,360)};
    foreach(var size in cases){w.Width=size.Width;w.Height=size.Height;await Frame(w);for(int step=0;step<5;step++){
     Call(w,"ShowStep",step);await Frame(w);var root=(FrameworkElement)w.Content;var scroll=Get<ScrollViewer>(w,"scroll");
     Check(scroll.ExtentWidth<=scroll.ViewportWidth+1,"Horizontal overflow at "+size+" page "+step+": "+scroll.ExtentWidth+" / "+scroll.ViewportWidth);
     var next=Get<Button>(w,"next");var point=next.TranslatePoint(new Point(0,0),root);
     Check(point.X>=0&&point.Y>=0&&point.X+next.ActualWidth<=root.ActualWidth+1&&point.Y+next.ActualHeight<=root.ActualHeight+1,"Navigation off-screen");
-    Check(scroll.ActualHeight>=75,"No useful page height");pagesChecked++;
+    Check(scroll.ActualHeight>=75,"No useful page height");if(locale=="en")CheckEnglish(root);pagesChecked++;
    }}
    Get<ComboBox>(w,"theme").SelectedIndex=2;Call(w,"ShowStep",0);await Frame(w);Capture(w,"small-dark");
    w.Width=1366/1.5;w.Height=768/1.5;await Frame(w);Capture(w,"1366x768-at-150-percent",1.5);
    w.Width=1280/2;w.Height=720/2;await Frame(w);Capture(w,"1280x720-at-200-percent",2);
    w.Width=1040;w.Height=800;Call(w,"ShowStep",4);await Frame(w);
    Check(Get<ComboBox>(w,"aiClient").SelectedIndex==0,"ChatGPT default");
-   Check(Get<Button>(w,"connectionPrimary").Content.ToString().Contains("打开 ChatGPT"),"Default copy/open action");
+   Check(Get<Button>(w,"connectionPrimary").Content.ToString().Contains("ChatGPT"),"Default copy/open action");
    var fields=Get<Dictionary<string,TextBox>>(w,"text");fields["mcpUrl"].Text="https://fixture.workers.dev/mcp";fields["appName"].Text="Fixture Notes";Set(w,"password","fixture-read-password");
    await Frame(w);Capture(w,"chatgpt-step-one");
    var primary=Get<Button>(w,"connectionPrimary");primary.ApplyTemplate();
@@ -79,37 +89,63 @@ class UiSmoke {
    fields["includePrefixes"].Text="Inbox\nProjects";
    var options=(Dictionary<string,object>)Call(w,"Options");Check((string)options["includePrefixes"]=="Inbox\nProjects"&&(double)options["maxAttachmentMiB"]==8&&(bool)options["syncOnChange"],"Sync settings changed in UI");
    var original=SnapshotClipboard();
+   Exception copyFailure=null;
    try {
     // The password entry must be visible and reachable before opening a browser.
     var navigation=Get<WrapPanel>(w,"connectionSteps");
-    Check(navigation.Children.Count==3&&((Button)navigation.Children[2]).Content.ToString().Contains("授权密码"),"Password navigation missing on the first step");
+    Check(navigation.Children.Count==3&&((Button)navigation.Children[2]).Content.ToString()==L.T("3 · 授权密码"),"Password navigation missing on the first step");
     // This window deliberately has no RPC backend: a failed browser-open must not trap the flow.
     await(Task)Call(w,"AdvanceConnection");
     Check(Get<int>(w,"connectionStep")==1&&Clipboard.GetText()==fields["mcpUrl"].Text,"Browser failure trapped the address step");
-    Check(Get<TextBlock>(w,"status").Text.Contains("后续信息仍可继续复制"),"Browser failure guidance missing");
+    Check(Get<TextBlock>(w,"status").Text.StartsWith(L.T("地址已复制，后续信息仍可继续复制。")),"Browser failure guidance missing");
     navigation=Get<WrapPanel>(w,"connectionSteps");
     ((Button)navigation.Children[2]).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
     await Frame(w);Check(Get<PasswordBox>(w,"readPassword").IsVisible,"Password field not reachable after browser failure");
     Capture(w,"password-after-browser-failure");
     await(Task)Call(w,"AdvanceConnection");Check(Clipboard.GetText()=="fixture-read-password","Password copy after browser failure");
-    Get<ComboBox>(w,"aiClient").SelectedIndex=1;Check(Get<Button>(w,"connectionPrimary").Content.ToString()=="复制 MCP 地址","Other AI label");
+    Get<ComboBox>(w,"aiClient").SelectedIndex=1;Check(Get<Button>(w,"connectionPrimary").Content.ToString()==L.T("复制 MCP 地址"),"Other AI label");
     Check(Get<WrapPanel>(w,"connectionSteps").Children.Count==2,"Other AI password navigation missing");
     await(Task)Call(w,"AdvanceConnection");Check(Clipboard.GetText()==fields["mcpUrl"].Text,"Other AI address copy");
     await(Task)Call(w,"AdvanceConnection");Check(Clipboard.GetText()=="fixture-read-password","Other AI password copy");
     Get<ComboBox>(w,"aiClient").SelectedIndex=0;Set(w,"connectionStep",1);Call(w,"RenderConnection");
     await(Task)Call(w,"AdvanceConnection");Check(Clipboard.GetText()=="Fixture Notes","ChatGPT name copy");
     await(Task)Call(w,"AdvanceConnection");Check(Clipboard.GetText()=="fixture-read-password","ChatGPT password copy");
-   } finally {RestoreClipboard(original);}
-   Check(Get<TextBlock>(w,"connectionTitle").Text=="回到 AI 完成连接","No false connected claim");
+   } catch(Exception copyError){copyFailure=copyError;}
+   // .NET Framework's compiler does not support await inside finally.
+   try {await RestoreClipboard(original);}
+   catch(Exception restoreError){if(copyFailure!=null)throw new AggregateException(copyFailure,restoreError);throw;}
+   if(copyFailure!=null)System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(copyFailure).Throw();
+   Check(Get<TextBlock>(w,"connectionTitle").Text==L.T("回到 AI 完成连接"),"No false connected claim");
    Call(w,"ShowStep",1);var state=new Dictionary<string,object>{{"authenticated",true},{"accounts",new object[]{new Dictionary<string,object>{{"id","test"},{"name","Test Account"}}}}};
    Call(w,"Update",state);Check(!Get<PasswordBox>(w,"cfToken").IsEnabled&&!Get<Button>(w,"tokenButton").IsEnabled,"Token disabled after OAuth");
-   var timer=Stopwatch.StartNew();for(int i=0;i<80;i++){w.Width=600+i*4;w.Height=500+(i%15);w.UpdateLayout();}timer.Stop();
+   // Switching must update the current page while preserving user-entered state.
+   fields["deviceName"].Text="My laptop";fields["includePrefixes"].Text="Inbox\nProjects";
+   Get<Dictionary<string,CheckBox>>(w,"checks")["bidirectionalEnabled"].IsChecked=true;
+   Get<PasswordBox>(w,"cfToken").Password="fixture-token";
+   Set(w,"connectionStep",2);Call(w,"ShowStep",4);Call(w,"RenderConnection");
+   int themeBefore=Get<ComboBox>(w,"theme").SelectedIndex;
+   Get<ComboBox>(w,"language").SelectedIndex=locale=="en"?0:1;await Frame(w);
+   Check(fields["deviceName"].Text=="My laptop"&&fields["includePrefixes"].Text=="Inbox\nProjects","Language switch lost input");
+   Check(Get<PasswordBox>(w,"cfToken").Password=="fixture-token"&&Get<string>(w,"password")=="fixture-read-password","Language switch lost credentials");
+   Check(Get<int>(w,"step")==4&&Get<int>(w,"connectionStep")==2&&Get<ComboBox>(w,"theme").SelectedIndex==themeBefore,"Language switch changed navigation/theme");
+   Check(Get<ComboBox>(w,"accounts").SelectedIndex==0&&Get<Dictionary<string,CheckBox>>(w,"checks")["bidirectionalEnabled"].IsChecked==true,"Language switch lost account/settings");
+   for(int page=0;page<5;page++){Call(w,"ShowStep",page);await Frame(w);if(L.Language=="en")CheckEnglish((DependencyObject)w.Content);}
+   Get<ComboBox>(w,"language").SelectedIndex=locale=="en"?1:0;await Frame(w);
+   Set(w,"busy",true);Call(w,"RefreshEnabled");Check(!Get<ComboBox>(w,"language").IsEnabled,"Language switch enabled during operation");Set(w,"busy",false);Call(w,"RefreshEnabled");
+   fields["maxAttachmentMiB"].Text="invalid";
+   try {Call(w,"Options");throw new Exception("Invalid numeric input accepted");}catch(TargetInvocationException error){Check(error.InnerException.Message.StartsWith(L.T("请填写有效的数值：")),"Validation message language");}
+   fields["maxAttachmentMiB"].Text="8";
+   Call(w,"Error",String.Join(" ",new string[]{L.T("当前操作还在进行，请等待完成。"),L.T("当前操作还在进行，请等待完成。"),L.T("当前操作还在进行，请等待完成。"),L.T("当前操作还在进行，请等待完成。")}));
+   w.Width=480;w.Height=360;await Frame(w);Capture(w,"long-error-small");
+   Check(Get<ScrollViewer>(w,"scroll").ActualHeight>=75,"Long error hides page");
+   var timer=Stopwatch.StartNew();for(int i=0;i<80;i++){w.Width=600+i*4;w.Height=500+(i%15);w.UpdateLayout();}timer.Stop();resizeMilliseconds+=timer.ElapsedMilliseconds;
    Check(timer.ElapsedMilliseconds<4000,"Resize layout stalls: "+timer.ElapsedMilliseconds);w.Close();
    // Exercise the real backend after the first fully rendered frame, using an isolated receipt directory.
    var live=new SetupWindow();live.Show();await Frame(live);Capture(live,"real-startup-first-frame");
    for(int i=0;i<100&&!Get<bool>(live,"ready");i++)await Task.Delay(100);
-   Check(Get<bool>(live,"ready"),"Real backend failed: "+Get<TextBlock>(live,"status").Text);await Frame(live);Capture(live,"real-startup-ready");live.Close();
-   File.WriteAllText(Path.Combine(Output,"ui-result.json"),"{\"passed\":true,\"viewportPageChecks\":"+pagesChecked+",\"resizeCycles\":80,\"resizeMilliseconds\":"+timer.ElapsedMilliseconds+",\"nativeDpiScale\":"+dpiScale.ToString(System.Globalization.CultureInfo.InvariantCulture)+",\"opaqueFirstFrame\":true,\"realBackendReady\":true,\"copyFlow\":true,\"lightLogo\":true}");app.Shutdown(0);
+   Check(Get<bool>(live,"ready"),"Real backend failed: "+Get<TextBlock>(live,"status").Text);await Frame(live);Capture(live,"real-startup-ready");if(locale=="en")CheckEnglish((DependencyObject)live.Content);live.Close();
+   }
+   File.WriteAllText(Path.Combine(Output,"ui-result.json"),"{\"passed\":true,\"viewportPageChecks\":"+pagesChecked+",\"languages\":[\"zh-CN\",\"en\"],\"liveLanguageSwitch\":true,\"resizeCycles\":160,\"resizeMilliseconds\":"+resizeMilliseconds+",\"nativeDpiScale\":"+dpiScale.ToString(System.Globalization.CultureInfo.InvariantCulture)+",\"opaqueFirstFrame\":true,\"realBackendReady\":true,\"copyFlow\":true,\"lightLogo\":true}");app.Shutdown(0);
   }catch(Exception error){File.WriteAllText(Path.Combine(Output,"ui-error.txt"),error.ToString());app.Shutdown(1);}};
   app.Run();
  }

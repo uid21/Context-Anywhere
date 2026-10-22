@@ -1,3 +1,4 @@
+import { t, SetupError } from './language.mjs';
 import { spawn } from 'node:child_process';
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import path from 'node:path';
@@ -7,13 +8,13 @@ export function powershell(script, input = '') {
     const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     let output = ''; child.stdout.on('data', chunk => output += chunk);
     child.on('error', reject);
-    child.on('close', code => code === 0 ? resolve(output.trim()) : reject(new Error('Windows 本地操作失败，请检查目录权限。')));
+    child.on('close', code => code === 0 ? resolve(output.trim()) : reject(new SetupError("Windows 本地操作失败，请检查目录权限。", "The local Windows operation failed. Check the folder permissions.")));
     child.stdin.end(input);
   });
 }
 
 export async function protect(value, decrypt = false) {
-  if (process.platform !== 'win32') throw new Error('向导的凭证保存功能仅支持 Windows。');
+  if (process.platform !== 'win32') throw new SetupError("向导的凭证保存功能仅支持 Windows。", "Saving setup credentials is only supported on Windows.");
   const script = `Add-Type -AssemblyName System.Security
   $setupInput = [Console]::In.ReadToEnd()
   $setupBytes = [Convert]::FromBase64String($setupInput)
@@ -26,7 +27,7 @@ export class Store {
   constructor(directory) { this.directory = directory; this.file = path.join(directory, 'deployment.dpapi'); }
   async load() {
     try { return JSON.parse((await protect(await readFile(this.file), true)).toString('utf8')); }
-    catch (error) { if (error.code === 'ENOENT') return null; throw new Error('无法读取之前的安装记录，请使用原 Windows 账号运行。'); }
+    catch (error) { if (error.code === 'ENOENT') return null; throw new SetupError("无法读取之前的安装记录，请使用原 Windows 账号运行。", "The previous setup record could not be read. Run the wizard with the original Windows account."); }
   }
   async save(value) {
     await mkdir(this.directory, { recursive: true });

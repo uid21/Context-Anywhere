@@ -1,0 +1,21 @@
+name: Context Anywhere release services
+description: Official GitHub SDKs running with the checksum-verified project Node and locked dependencies
+inputs:
+  operation:
+    description: upload or attest
+    required: true
+  github-token:
+    description: Token for storing build provenance
+    default: ${{ github.token }}
+outputs:
+  artifact-id:
+    description: Uploaded workflow artifact ID
+  artifact-url:
+    description: Uploaded workflow artifact URL
+  bundle-path:
+    description: Signed provenance bundle path
+  attestation-id:
+    description: Stored build attestation ID
+runs:
+  using: node24
+  main: launch.cjs

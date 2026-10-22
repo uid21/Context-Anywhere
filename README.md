@@ -4,7 +4,7 @@
 
 [中文](README.zh-CN.md) · **English**
 
-**Windows setup preview:** download the portable Windows ZIP from [Releases](https://github.com/uid21/Context-Anywhere/releases), extract it and run `ContextAnywhere.exe`. The wizard deploys independent Cloudflare resources, imports connection settings into Obsidian, and opens ChatGPT in your default browser with copyable connection fields. Includes light, dark and system appearance. See [Windows setup details](installer/README.md).
+**Windows setup 0.3.0:** download the portable Windows ZIP from the [0.3.0 release](https://github.com/uid21/Context-Anywhere/releases/tag/windows-setup-v0.3.0), extract it and run `ContextAnywhere.exe`. The wizard deploys independent Cloudflare resources, imports connection settings into Obsidian, and opens ChatGPT in your default browser with copyable connection fields. Includes Chinese and English interfaces with a language selector, plus light, dark and system appearance. See [Windows setup details](installer/README.md).
 
 
 ## Overview
@@ -97,17 +97,17 @@ Then copy the three build files above.
 
 ### 2. Check the source and log in to Cloudflare
 
-You need a Cloudflare account, Node.js/npm, and this project's source code.
+You need a Cloudflare account, Node.js/npm, and this project's source code. Use Node **22.23.4** from `.node-version` (or patched Node 24.22.1 / 26.12.1 or later in those release lines). The setup ZIP's private Node does not update the Node used by your terminal.
 
 Run the following in the project root:
 
 ```powershell
-npm install
-npm --prefix worker install
+npm ci
+npm --prefix worker ci
 npm run check
 cd worker
-npx wrangler login
-npx wrangler whoami
+npm run wrangler -- login
+npm run wrangler -- whoami
 ```
 
 `npm run check` checks whether the plugin and Worker can be tested, built, and dry-run successfully. Passing this check does not mean that the real Cloudflare resources have already been bound successfully.
@@ -117,8 +117,8 @@ npx wrangler whoami
 Create two independent resources in the `worker` directory:
 
 ```powershell
-npx wrangler r2 bucket create my-obsidian-ai-mirror
-npx wrangler kv namespace create my-obsidian-ai-mirror-oauth
+npm run wrangler -- r2 bucket create my-obsidian-ai-mirror
+npm run wrangler -- kv namespace create my-obsidian-ai-mirror-oauth
 ```
 
 After creating the KV namespace, record the **Namespace ID** returned by Cloudflare.
@@ -159,9 +159,9 @@ Use them as:
 Store them in Cloudflare:
 
 ```powershell
-npx wrangler secret put MIRROR_TOKEN --config wrangler.toml
-npx wrangler secret put MIRROR_READ_KEY --config wrangler.toml
-npx wrangler deploy --config wrangler.toml
+npm run wrangler -- secret put MIRROR_TOKEN --config wrangler.toml
+npm run wrangler -- secret put MIRROR_READ_KEY --config wrangler.toml
+npm run wrangler -- deploy --config wrangler.toml
 ```
 
 After deployment, Wrangler returns the Worker's HTTPS address.

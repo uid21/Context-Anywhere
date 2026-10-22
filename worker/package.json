@@ -4,18 +4,32 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "wrangler deploy --dry-run --config wrangler.example.toml --outdir .wrangler-dry-run",
-    "dev": "wrangler dev --local",
-    "test": "node --test"
+    "preinstall": "node ../scripts/check-runtime.mjs",
+    "postinstall": "node scripts/secure-wrangler.mjs --apply",
+    "security:repair": "node scripts/secure-wrangler.mjs --apply",
+    "security:check": "node scripts/secure-wrangler.mjs",
+    "wrangler": "node scripts/wrangler.mjs",
+    "check": "node scripts/wrangler.mjs deploy --dry-run --config wrangler.example.toml --outdir .wrangler-dry-run",
+    "dev": "node scripts/wrangler.mjs dev --local",
+    "test": "node --test test/*.test.js",
+    "test:integration": "node --test integration/*.test.mjs"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^0.10.3",
-    "@modelcontextprotocol/server": "2.0.0",
-    "agents": "0.22.0",
+    "@modelcontextprotocol/server": "2.3.1",
     "zod": "4.5.2"
   },
   "devDependencies": {
-    "@modelcontextprotocol/client": "^2.0.0",
+    "@modelcontextprotocol/client": "2.3.1",
+    "acorn": "8.18.0",
+    "ip-address": "10.7.4",
+    "undici": "7.30.1",
     "wrangler": "4.127.1"
+  },
+  "overrides": {
+    "miniflare@5.20260828.0-alpha": {
+      "undici": "7.30.1",
+      "sharp": "0.35.5"
+    }
   }
 }

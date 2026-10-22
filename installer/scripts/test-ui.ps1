@@ -12,7 +12,7 @@ foreach($setupPart in @('app','runtime','payload')) {
   }
 }
 $setupFramework=Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319'
-& "$setupFramework\csc.exe" /nologo /target:winexe /platform:x64 /main:UiSmoke "/out:$setupOutput\UiSmoke.exe" "/win32manifest:$setupRoot\native\app.manifest" /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll /reference:System.Xaml.dll "/reference:$setupFramework\WPF\WindowsBase.dll" "/reference:$setupFramework\WPF\PresentationCore.dll" "/reference:$setupFramework\WPF\PresentationFramework.dll" "/resource:$setupRoot\native\Theme.xaml,ContextAnywhere.Theme.xaml" "$setupRoot\native\Setup.cs" "$setupRoot\native\Rpc.cs" "$setupRoot\test\UiSmoke.cs"
+& "$setupFramework\csc.exe" /nologo /target:winexe /platform:x64 /main:UiSmoke "/out:$setupOutput\UiSmoke.exe" "/win32manifest:$setupRoot\native\app.manifest" /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll /reference:System.Xaml.dll "/reference:$setupFramework\WPF\WindowsBase.dll" "/reference:$setupFramework\WPF\PresentationCore.dll" "/reference:$setupFramework\WPF\PresentationFramework.dll" "/resource:$setupRoot\native\Theme.xaml,ContextAnywhere.Theme.xaml" "$setupRoot\native\Setup.cs" "$setupRoot\native\Rpc.cs" "$setupRoot\native\Localization.cs" "$setupRoot\test\UiSmoke.cs"
 if($LASTEXITCODE -ne 0){throw 'UI test compilation failed'}
 $env:CA_UI_OUTPUT=$setupOutput
 $env:CA_SETUP_DATA_DIR=Join-Path $setupOutput 'state'

@@ -6,13 +6,14 @@
   "license": "PolyForm-Noncommercial-1.0.0",
   "description": "An Obsidian plugin that mirrors and optionally syncs Markdown notes and referenced attachments through a compatible AI service.",
   "scripts": {
+    "preinstall": "node scripts/check-runtime.mjs",
     "build": "node esbuild.config.mjs production",
     "dev": "node esbuild.config.mjs",
     "test": "node --test \"tests/*.test.js\"",
     "test:worker": "npm --prefix worker test",
     "check:worker": "npm --prefix worker run check",
     "lint": "eslint src",
-    "check": "npm run test && npm run test:worker && npm run lint && npm run build && npm run check:worker",
+    "check": "node scripts/check-runtime.mjs && npm --prefix worker run security:check && npm run test && npm run test:worker && npm run lint && npm run build && npm run check:worker && npm --prefix worker run test:integration",
     "test:installer": "npm --prefix installer test",
     "build:installer": "npm --prefix installer run build",
     "package:windows": "npm --prefix installer run package:windows"
@@ -22,5 +23,10 @@
     "eslint": "10.9.1",
     "eslint-plugin-obsidianmd": "0.4.2",
     "obsidian": "1.13.1"
+  },
+  "overrides": {
+    "obsidian": {
+      "moment": "2.31.0"
+    }
   }
 }

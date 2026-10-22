@@ -63,7 +63,7 @@ obsidian://new?vault=<vault>&file=<path>&content=<经过URL编码的内容>&appe
 
 ### Windows 安装向导
 
-从 [Releases](https://github.com/uid21/Context-Anywhere/releases) 下载 Windows ZIP，完整解压后双击 `ContextAnywhere.exe`，无需安装。向导提供账号和插件指引，帮助你选择同步范围、部署独立镜像，并将连接设置导入 Obsidian。
+从 [0.3.0 发布页](https://github.com/uid21/Context-Anywhere/releases/tag/windows-setup-v0.3.0) 下载 Windows ZIP，完整解压后双击 `ContextAnywhere.exe`，无需安装。向导支持简体中文和 English，可在界面内切换；提供账号和插件指引，帮助你选择同步范围、部署独立镜像，并将连接设置导入 Obsidian。
 
 详见 [Windows 向导说明](installer/README.md)。
 
@@ -99,17 +99,17 @@ npm run build
 
 ### 2. 检查源码并登录 Cloudflare
 
-需要 Cloudflare 账号、Node.js/npm，以及本项目源码。
+需要 Cloudflare 账号、Node.js/npm，以及本项目源码。请使用 `.node-version` 固定的 Node **22.23.4**，或对应分支中不低于 24.22.1 / 26.12.1 的安全版本。向导 ZIP 自带的 Node 不会更新终端正在使用的 Node。
 
 在项目根目录执行：
 
 ```powershell
-npm install
-npm --prefix worker install
+npm ci
+npm --prefix worker ci
 npm run check
 cd worker
-npx wrangler login
-npx wrangler whoami
+npm run wrangler -- login
+npm run wrangler -- whoami
 ```
 
 `npm run check` 会检查插件和 Worker 是否能正常测试、构建和 dry-run；它通过不代表真实 Cloudflare 资源已经绑定成功。
@@ -119,8 +119,8 @@ npx wrangler whoami
 在 `worker` 目录创建两个独立资源：
 
 ```powershell
-npx wrangler r2 bucket create my-obsidian-ai-mirror
-npx wrangler kv namespace create my-obsidian-ai-mirror-oauth
+npm run wrangler -- r2 bucket create my-obsidian-ai-mirror
+npm run wrangler -- kv namespace create my-obsidian-ai-mirror-oauth
 ```
 
 创建 KV 后记下 Cloudflare 返回的 **Namespace ID**。
@@ -161,9 +161,9 @@ node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'
 写入 Cloudflare：
 
 ```powershell
-npx wrangler secret put MIRROR_TOKEN --config wrangler.toml
-npx wrangler secret put MIRROR_READ_KEY --config wrangler.toml
-npx wrangler deploy --config wrangler.toml
+npm run wrangler -- secret put MIRROR_TOKEN --config wrangler.toml
+npm run wrangler -- secret put MIRROR_READ_KEY --config wrangler.toml
+npm run wrangler -- deploy --config wrangler.toml
 ```
 
 Wrangler 部署完成后会返回 Worker HTTPS 地址。

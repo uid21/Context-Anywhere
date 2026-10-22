@@ -9,7 +9,24 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out triggering commit
+        shell: pwsh
+        env:
+          CHECKOUT_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $auth = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("x-access-token:$env:CHECKOUT_TOKEN"))
+          Write-Output "::add-mask::$auth"
+          git init .
+          git remote add origin "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY.git"
+          $env:GIT_CONFIG_COUNT = '1'
+          $env:GIT_CONFIG_KEY_0 = "http.$env:GITHUB_SERVER_URL/.extraheader"
+          $env:GIT_CONFIG_VALUE_0 = "AUTHORIZATION: basic $auth"
+          try { git -c protocol.version=2 fetch --no-tags --depth=1 origin $env:GITHUB_SHA }
+          finally { Remove-Item Env:GIT_CONFIG_COUNT, Env:GIT_CONFIG_KEY_0, Env:GIT_CONFIG_VALUE_0, Env:CHECKOUT_TOKEN }
+          git checkout --detach FETCH_HEAD
+          if ((git rev-parse HEAD).Trim() -ne $env:GITHUB_SHA) { throw 'Checkout does not match triggering commit' }
       - name: Verify setup tag
         if: startsWith(github.ref, 'refs/tags/windows-setup-v')
         shell: pwsh
@@ -18,39 +35,28 @@ jobs:
           if ($env:GITHUB_REF_NAME -ne "windows-setup-v$setupVersion") {
             throw 'Setup release tag must match installer/package.json'
           }
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            installer/package-lock.json
-            worker/package-lock.json
+      - name: Install checksum-verified Node
+        shell: pwsh
+        run: ./.github/ci/bootstrap.ps1
+      - name: Install release services
+        run: npm --prefix .github/ci ci --ignore-scripts
+      - name: Verify release services runtime
+        run: npm --prefix .github/ci run verify
+      - name: Test release services
+        run: npm --prefix .github/ci test
       - run: npm ci
       - run: npm --prefix worker ci
       - run: npm --prefix installer ci
       - run: npm run check
       - run: npm run test:installer
-      - run: npm run build:installer
       - run: npm run package:windows
       - run: npm --prefix installer run test:ui
-      - uses: actions/upload-artifact@v4
+      - name: Upload Windows setup
+        uses: ./.github/ci
         with:
-          name: Context-Anywhere-Windows-Setup
-          path: |
-            installer/dist/Context-Anywhere-*-win-x64.zip
-            installer/dist/SHA256SUMS.txt
+          operation: upload
       - name: Draft Windows release
         if: startsWith(github.ref, 'refs/tags/windows-setup-v')
-        uses: softprops/action-gh-release@v2
-        with:
-          draft: true
-          prerelease: true
-          name: Context Anywhere Windows Setup
-          body_path: installer/RELEASE-NOTES.md
-          files: |
-            installer/dist/Context-Anywhere-*-win-x64.zip
-            installer/dist/SHA256SUMS.txt
-            main.js
-            manifest.json
-            styles.css
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node .github/ci/release.mjs windows

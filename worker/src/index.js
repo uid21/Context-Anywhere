@@ -1,6 +1,8 @@
-import { McpServer } from "@modelcontextprotocol/server";
+import {
+  McpServer, createMcpHandler, hostHeaderValidationResponse, originValidationResponse,
+  localhostAllowedHostnames, localhostAllowedOrigins,
+} from "@modelcontextprotocol/server";
 import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
-import { createMcpHandler } from "agents/mcp/server";
 import { z } from "zod";
 import { noteReferencesAsset } from "./references.js";
 import { authorizationRedirect, escapeHtml, html, OAUTH_REFRESH_TOKEN_TTL } from "./oauth-response.js";
@@ -19,6 +21,10 @@ const SYNC_SCHEMA_VERSION = 1;
 const OAUTH_SCOPE = "mcp:read";
 const CSRF_COOKIE = "__Host-obsidian_mirror_csrf";
 const MEBIBYTE = 1024 * 1024;
+// Tools take only a few short scalar arguments. Bound both parsing and validation,
+// including the older MCP protocol supported by existing clients.
+const MAX_MCP_REQUEST_BYTES = 64 * 1024;
+const MAX_MCP_TOOL_ELEMENTS = 128;
 const ATTACHMENT_TYPES = new Map([
   [".gif", { mime: "image/gif", maxBytes: 8 * MEBIBYTE, mode: "image" }],
   [".jpeg", { mime: "image/jpeg", maxBytes: 8 * MEBIBYTE, mode: "image" }],
@@ -347,7 +353,9 @@ async function readAttachmentForMcp(env, path) {
 }
 
 function createMirrorServer(env) {
-  const server = new McpServer({ name: "Context Anywhere", version: "4.0.0" });
+  const server = new McpServer({ name: "Context Anywhere", version: "4.0.0" }, {
+    maxToolInputElements: MAX_MCP_TOOL_ELEMENTS,
+  });
   const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
   server.registerTool(
@@ -682,11 +690,22 @@ async function handleAuthorization(request, env) {
 }
 
 const mcpApiHandler = {
-  async fetch(request, env, ctx) {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+    if (url.pathname !== "/mcp") return new Response("Not Found", { status: 404 });
+    // Retain the previous adapter's browser-origin and local-host protections.
+    const localHosts = localhostAllowedHostnames();
+    const workersDev = url.hostname.endsWith(".workers.dev");
+    const hosts = localHosts.includes(url.hostname) ? localHosts : workersDev ? [url.hostname] : undefined;
+    const hostRejection = hosts && hostHeaderValidationResponse(request, hosts);
+    const originRejection = originValidationResponse(request, [
+      ...localhostAllowedOrigins(), ...(workersDev ? [url.hostname] : []),
+    ]);
+    if (hostRejection || originRejection) return hostRejection || originRejection;
     return createMcpHandler(() => createMirrorServer(env), {
-      route: "/mcp",
-      corsOptions: false,
-    })(request, env, ctx);
+      maxRequestBodySize: MAX_MCP_REQUEST_BYTES,
+      legacy: "stateless",
+    }).fetch(request);
   },
 };
 
