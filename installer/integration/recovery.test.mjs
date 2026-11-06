@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { createInterface } from 'node:readline';
-import { mkdtemp, mkdir, readFile, writeFile, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, readdir, realpath, rm } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -22,7 +22,9 @@ const record = { kind: 'context-anywhere-recovery', version: 1, accountId: accou
 const key = 'deployment:' + names.worker;
 
 test('a blank device discovers, restores, imports once and resumes with only a Cloudflare login', { timeout: 45000 }, async t => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), 'ca-recovery-'));
+  // The runner's TEMP may use an 8.3 alias. Model Obsidian opening the canonical
+  // vault path returned by inspection, rather than a different spelling of it.
+  const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), 'ca-recovery-')));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const vault = path.join(directory, 'New device vault'), plugin = path.join(vault, '.obsidian/plugins/ai-bridge');
   await mkdir(plugin, { recursive: true });
