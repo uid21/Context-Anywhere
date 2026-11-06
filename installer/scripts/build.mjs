@@ -7,14 +7,15 @@ import { fileURLToPath } from 'node:url';
 const directory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const root = path.dirname(directory);
 const version = JSON.parse(await readFile(path.join(directory, 'package.json'), 'utf8')).version;
-const output = path.join(directory, 'dist', `Context-Anywhere-${version}-win-x64`);
+const outputRoot = path.resolve(process.argv[2] || path.join(directory, 'dist'));
+const output = path.join(outputRoot, `Context-Anywhere-${version}-win-x64`);
 assertSafeRuntime();
-if (!/^\d+\.\d+\.\d+$/.test(version) || path.dirname(output) !== path.join(directory, 'dist')) throw new Error('Invalid setup output directory.');
+if (!/^\d+\.\d+\.\d+$/.test(version) || path.dirname(output) !== outputRoot) throw new Error('Invalid setup output directory.');
 function run(command, args, cwd) { return new Promise((resolve, reject) => {
   const process = spawn(command, args, { cwd, stdio: 'inherit', windowsHide: true });
   process.on('error', reject); process.on('close', code => code === 0 ? resolve() : reject(new Error(`Build exited ${code}`)));
 }); }
-// Only the canonical generated bundle is replaced. User-named folders are not build caches.
+// Replace only the versioned generated bundle, never its output root.
 await rm(output, { recursive: true, force: true });
 await mkdir(path.join(output, 'app'), { recursive: true });
 await mkdir(path.join(output, 'payload'), { recursive: true });

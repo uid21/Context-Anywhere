@@ -1,11 +1,11 @@
-param([string]$NodeVersion)
+param([string]$NodeVersion, [string]$OutputDirectory)
 $ErrorActionPreference = 'Stop'
 $setupRoot = Split-Path -Parent $PSScriptRoot
 $setupPinnedVersion = (Get-Content -LiteralPath (Join-Path (Split-Path -Parent $setupRoot) '.node-version') -Raw).Trim()
 if (-not $NodeVersion) { $NodeVersion = $setupPinnedVersion }
 if ($NodeVersion -ne $setupPinnedVersion) { throw 'NodeVersion must match the reviewed runtime in .node-version.' }
 $setupVersion = (Get-Content -LiteralPath (Join-Path $setupRoot 'package.json') -Raw | ConvertFrom-Json).version
-$setupDist = Join-Path $setupRoot 'dist'
+$setupDist = if ($OutputDirectory) { [IO.Path]::GetFullPath($OutputDirectory) } else { Join-Path $setupRoot 'dist' }
 $setupBundle = Join-Path $setupDist "Context-Anywhere-$setupVersion-win-x64"
 $setupTools = Join-Path $setupRoot '.tools'
 New-Item -ItemType Directory -Force -Path $setupTools | Out-Null
@@ -44,7 +44,7 @@ Push-Location (Split-Path -Parent $setupRoot)
 try {
   & $setupBuildRuntime esbuild.config.mjs production
   if ($LASTEXITCODE -ne 0) { throw 'Plugin build failed.' }
-  & $setupBuildRuntime (Join-Path $PSScriptRoot 'build.mjs')
+  & $setupBuildRuntime (Join-Path $PSScriptRoot 'build.mjs') $setupDist
   if ($LASTEXITCODE -ne 0) { throw 'Setup backend/Worker build failed.' }
 } finally { Pop-Location }
 New-Item -ItemType Directory -Force -Path (Join-Path $setupBundle 'runtime') | Out-Null
@@ -62,7 +62,8 @@ Assert-SetupRuntime $setupRuntime
 $setupRuntimeHash = Get-SetupHash $setupRuntime
 $setupFramework = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319'
 $setupCompiler = Join-Path $setupFramework 'csc.exe'
-& $setupCompiler /nologo /target:winexe /platform:x64 /optimize+ "/out:$setupBundle\ContextAnywhere.exe" "/win32manifest:$setupRoot\native\app.manifest" /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll /reference:System.Xaml.dll "/reference:$setupFramework\WPF\WindowsBase.dll" "/reference:$setupFramework\WPF\PresentationCore.dll" "/reference:$setupFramework\WPF\PresentationFramework.dll" "/resource:$setupRoot\native\Theme.xaml,ContextAnywhere.Theme.xaml" "$setupRoot\native\Setup.cs" "$setupRoot\native\Rpc.cs" "$setupRoot\native\Localization.cs"
+& (Join-Path $PSScriptRoot 'build-icon.ps1')
+& $setupCompiler /nologo /target:winexe /platform:x64 /optimize+ "/out:$setupBundle\ContextAnywhere.exe" "/win32manifest:$setupRoot\native\app.manifest" "/win32icon:$setupRoot\native\assets\context-anywhere.ico" /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll /reference:System.Xaml.dll "/reference:$setupFramework\WPF\WindowsBase.dll" "/reference:$setupFramework\WPF\PresentationCore.dll" "/reference:$setupFramework\WPF\PresentationFramework.dll" "/resource:$setupRoot\native\Theme.xaml,ContextAnywhere.Theme.xaml" "/resource:$setupRoot\native\assets\context-anywhere.ico,ContextAnywhere.Icon.ico" "$setupRoot\native\Setup.cs" "$setupRoot\native\Rpc.cs" "$setupRoot\native\Localization.cs" "$setupRoot\native\FolderPicker.cs" "$setupRoot\native\UiMotion.cs"
 if ($LASTEXITCODE -ne 0) { throw 'Native Windows executable compilation failed.' }
 $setupExecutableInfo = [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $setupBundle 'ContextAnywhere.exe'))
 if ($setupExecutableInfo.FileVersion -ne "$setupVersion.0" -or $setupExecutableInfo.ProductVersion -ne $setupVersion) { throw 'Native executable version does not match installer/package.json.' }
@@ -103,6 +104,8 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'Final ZIP runtime security regression failed.' }
   & $setupVerificationNode --test (Join-Path $setupRoot 'integration\packaged.test.mjs')
   if ($LASTEXITCODE -ne 0) { throw 'Final ZIP setup integration failed.' }
+  & $setupVerificationNode --test (Join-Path $setupRoot 'integration\recovery.test.mjs')
+  if ($LASTEXITCODE -ne 0) { throw 'Final ZIP recovery integration failed.' }
   & $setupVerificationNode --test '--test-name-pattern=built Worker' (Join-Path $setupRepo 'worker\integration\toolchain.test.mjs')
   if ($LASTEXITCODE -ne 0) { throw 'Final ZIP Worker integration failed.' }
   & $setupVerificationNode --test (Join-Path $setupRepo 'worker\integration\mcp-security.test.mjs')

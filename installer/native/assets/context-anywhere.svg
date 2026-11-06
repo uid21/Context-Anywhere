@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>Context Anywhere</title>
+  <desc>Two connected note pages: local knowledge and its readable mirror.</desc>
+  <path fill="#164E70" d="M40 8H216Q248 8 248 40V216Q248 248 216 248H40Q8 248 8 216V40Q8 8 40 8Z"/>
+  <path fill="#8CCDDD" d="M54 42H142Q154 42 154 54V172Q154 184 142 184H54Q42 184 42 172V54Q42 42 54 42Z"/>
+  <path fill="#164E70" d="M62 66H126V76H62ZM62 90H86V100H62ZM62 114H86V124H62Z"/>
+  <path fill="#FFFFFF" d="M104 76H168L210 118V206Q210 218 198 218H104Q92 218 92 206V88Q92 76 104 76Z"/>
+  <path fill="#C2DFE8" d="M168 76V106Q168 118 180 118H210Z"/>
+  <path fill="#164E70" d="M112 138H188V150H112ZM112 164H188V176H112ZM112 190H164V202H112Z"/>
+</svg>

@@ -8,7 +8,13 @@ import { powershell } from './storage.mjs';
 export async function inspectVault(directory, configDir = '.obsidian') {
   if (!directory || !path.isAbsolute(directory)) throw new SetupError("请选择 Obsidian 知识库所在的完整目录。", "Select the full path to your Obsidian vault.");
   if (!/^[^\\/:*?"<>|]+$/.test(configDir) || configDir === '.' || configDir === '..') throw new SetupError("Obsidian 配置目录名称无效。", "The Obsidian configuration folder name is invalid.");
-  const root = await realpath(directory);
+  let root;
+  try { root = await realpath(directory); }
+  catch (error) {
+    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') throw new SetupError("找不到这个知识库文件夹。请重新选择文件夹，或检查填写的路径。", "This vault folder could not be found. Choose the folder again or check its path.");
+    if (error.code === 'EACCES' || error.code === 'EPERM') throw new SetupError("无法访问这个知识库文件夹。请检查文件夹权限，或选择可访问的位置。", "This vault folder cannot be accessed. Check its permissions or choose an accessible folder.");
+    throw error;
+  }
   const pluginDir = path.join(root, configDir, 'plugins', 'ai-bridge');
   let manifest;
   try {
@@ -24,7 +30,7 @@ export async function inspectVault(directory, configDir = '.obsidian') {
 
 export function settingsFrom(options) {
   if (typeof options.deviceName !== 'string' || !options.deviceName.trim() || options.deviceName.length > 100) throw new SetupError("请填写设备名称（最多 100 字）。", "Enter a device name (up to 100 characters).");
-  const prefixes = String(options.includePrefixes || '').split(/\r?\n/).map(x => x.trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')).filter(Boolean);
+  const prefixes = options.mirrorAll === true ? [] : String(options.includePrefixes || '').split(/\r?\n/).map(x => x.trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')).filter(Boolean);
   if (prefixes.some(x => x.split('/').some(p => ['.', '..'].includes(p)) || /^[A-Za-z]:/.test(x))) throw new SetupError("镜像目录需为知识库内的相对路径，不能包含 ..。", "Sync paths must be relative to the vault and must not contain .. .");
   const interval = Number(options.autoSyncIntervalMinutes ?? 15);
   const maxAttachment = Number(options.maxAttachmentMiB ?? 8);

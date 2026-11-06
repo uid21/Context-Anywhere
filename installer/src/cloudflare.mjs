@@ -53,11 +53,16 @@ export async function login(onToken) {
 
 export class Cloudflare {
   constructor(token, fetcher = fetch) { this.token = token; this.fetcher = fetcher; }
-  async request(path, method = 'GET', body, { missing = false } = {}) {
-    const headers = { Authorization: `Bearer ${this.token}`, 'User-Agent': 'Context-Anywhere-Setup/0.3.0' };
+  async request(path, method = 'GET', body, { missing = false, raw = false, envelope = false } = {}) {
+    const headers = { Authorization: `Bearer ${this.token}`, 'User-Agent': 'Context-Anywhere-Setup/1.0.0' };
     if (body && !(body instanceof FormData)) { headers['Content-Type'] = 'application/json'; body = JSON.stringify(body); }
-    const response = await this.fetcher(`${API}${path}`, { method, headers, body, signal: AbortSignal.timeout(120_000) });
+    const response = await this.fetcher(`${API}${path}`, { method, headers, body, signal: AbortSignal.timeout(120_000), redirect: 'error' });
     if (missing && response.status === 404) return null;
+    if (raw && response.ok) {
+      const value = await response.text();
+      if (Buffer.byteLength(value) > 32 * 1024) throw new SetupError('恢复记录超过允许的大小。', 'The recovery record exceeds the allowed size.');
+      return value;
+    }
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.success === false) {
       const errorCodes = (data.errors || []).map(e => Number(e.code)).filter(Number.isFinite);
@@ -76,7 +81,7 @@ export class Cloudflare {
       error.status = response.status; error.codes = errorCodes;
       throw error;
     }
-    return data.result;
+    return envelope ? data : data.result;
   }
   async list(path, field) {
     const all = [];
@@ -98,7 +103,7 @@ export function resourceNames(label, id) {
   return { worker, bucket: `${worker}-notes`, kvTitle: `${worker}-oauth` };
 }
 
-export async function deploy({ cf, state, module, save, progress, fetcher = fetch }) {
+export async function deploy({ cf, state, module, save, progress, fetcher = fetch, saveRecovery = async () => {} }) {
   const { accountId, names, id, secrets } = state;
   if (!/^[a-f0-9]{32}$/.test(accountId)) throw new SetupError("请选择有效的 Cloudflare 账号。", "Select a valid Cloudflare account.");
   const base = `/accounts/${accountId}`;
@@ -163,7 +168,7 @@ export async function deploy({ cf, state, module, save, progress, fetcher = fetc
   await cf.request(`${base}/workers/scripts/${names.worker}/subdomain`, 'POST', { enabled: true, previews_enabled: false });
   state.workerUrl = `https://${names.worker}.${domain.subdomain}.workers.dev`; await save();
   progress(t("验证线上连接和只读授权入口", "Verifying the live connection and read-only authorization endpoint"));
-  let last;
+  let last, healthy = false;
   // New workers.dev routes need time to propagate. Bounded retries only during deployment.
   for (const delay of [0, 3000, 7000, 15000, 25000]) {
     if (delay) await new Promise(r => setTimeout(r, delay));
@@ -172,8 +177,13 @@ export async function deploy({ cf, state, module, save, progress, fetcher = fetc
       if (!health.ok || (await health.json()).service !== 'obsidian-ai-mirror') throw new SetupError("连接尚未就绪", "The connection is not ready yet");
       const discovery = await fetcher(`${state.workerUrl}/.well-known/oauth-authorization-server`, { signal: AbortSignal.timeout(15_000) });
       if (!discovery.ok || !(await discovery.json()).authorization_endpoint) throw new SetupError("OAuth 入口尚未就绪", "The OAuth endpoint is not ready yet");
-      state.deployed = true; await save(); progress(t("部署成功", "Deployment complete")); return;
+      healthy = true; break;
     } catch (error) { last = error; }
   }
-  throw new SetupError(() => t(`资源已创建，线上连接暂未通过。稍后点击重试即可继续。${last?.message === t("连接尚未就绪", "The connection is not ready yet") ? '' : t("请同时检查网络连接。", "Also check your network connection.")}`, `Resources have been created, but the live connection is not ready. Click Retry later to continue. ${last?.message === t("连接尚未就绪", "The connection is not ready yet") ? '' : t("请同时检查网络连接。", "Also check your network connection.")}`));
+  if (!healthy) throw new SetupError(() => t(`资源已创建，线上连接暂未通过。稍后点击重试即可继续。${last?.message === t("连接尚未就绪", "The connection is not ready yet") ? '' : t("请同时检查网络连接。", "Also check your network connection.")}`, `Resources have been created, but the live connection is not ready. Click Retry later to continue. ${last?.message === t("连接尚未就绪", "The connection is not ready yet") ? '' : t("请同时检查网络连接。", "Also check your network connection.")}`));
+  // Mirror readiness survives a recoverable backup failure; the caller surfaces
+  // a dedicated retry state without redeploying healthy resources.
+  state.deployed = true; await save();
+  await saveRecovery();
+  await save(); progress(t('部署成功', 'Deployment complete'));
 }

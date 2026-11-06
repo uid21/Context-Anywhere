@@ -4,7 +4,7 @@
 
 [中文](README.zh-CN.md) · **English**
 
-**Windows setup 0.3.0:** download the portable Windows ZIP from the [0.3.0 release](https://github.com/uid21/Context-Anywhere/releases/tag/windows-setup-v0.3.0), extract it and run `ContextAnywhere.exe`. The wizard deploys independent Cloudflare resources, imports connection settings into Obsidian, and opens ChatGPT in your default browser with copyable connection fields. Includes Chinese and English interfaces with a language selector, plus light, dark and system appearance. See [Windows setup details](installer/README.md).
+**Windows setup 1.0.0:** download the portable Windows ZIP from the [1.0.0 release](https://github.com/uid21/Context-Anywhere/releases/tag/windows-setup-v1.0.0), extract it and run `ContextAnywhere.exe`. The refreshed wizard provides smoother controls and scrolling, folder and note selection, and Chinese/English interfaces with light, dark and system appearance. On a new computer, choose your local vault and sign in to the original Cloudflare account to discover and restore an existing mirror's connection settings, then choose this device's sync scope. See [Windows setup details](installer/README.md).
 
 
 ## Overview
@@ -62,7 +62,7 @@ After the device completes the write, AI Bridge and any other sync system you co
 
 ### Windows Installation Wizard
 
-Download the Windows ZIP from [Releases](https://github.com/uid21/Context-Anywhere/releases), extract it completely, and double-click `ContextAnywhere.exe`. No installation is required. The wizard provides account and plugin guidelines to help you select the sync scope, deploy a standalone image, and import connection settings into Obsidian.
+Download the Windows ZIP from the [1.0.0 release](https://github.com/uid21/Context-Anywhere/releases/tag/windows-setup-v1.0.0), extract it completely, and double-click `ContextAnywhere.exe`. No installation is required. Choose folders or individual notes, or sync the whole vault. The wizard can deploy a new mirror or discover an existing deployment after Cloudflare sign-in, restore its connection settings, and import them into Obsidian. New devices select their own local vault and sync scope.
 
 For details, see the [Windows Wizard Guide](installer/README.md).
 

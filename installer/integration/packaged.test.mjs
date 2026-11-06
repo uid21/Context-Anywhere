@@ -19,7 +19,8 @@ const account = 'a'.repeat(32);
 test('packaged wizard survives hostile HTTPS, then authenticates and uploads the exact bundled Worker', { timeout: 30000 }, async t => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'ca-packaged-security-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  let attack = 'certificate', renegotiated = false, uploaded, metadata;
+  let attack = 'certificate', renegotiated = false, uploaded, metadata, recoveryValue, workerName, uploadCount = 0, failRecovery = true;
+  const namespaces = [];
   const wrongHost = { key: await pem('wrong-key'), cert: await pem('wrong-cert') };
   const sockets = new Set();
   const server = createServer({
@@ -43,14 +44,31 @@ test('packaged wizard survives hostile HTTPS, then authenticates and uploads the
     let result = {};
     if (req.url.startsWith('/client/v4/accounts?')) result = [{ id: account, name: 'Synthetic test account' }];
     else if (req.url.endsWith('/workers/subdomain')) result = { subdomain: 'fixture' };
-    else if (req.url.endsWith('/settings')) { res.writeHead(404).end('{}'); return; }
-    else if (req.url.endsWith('/storage/kv/namespaces')) result = { id: 'b'.repeat(32) };
+    else if (req.url.endsWith('/settings')) { if (metadata) result = metadata; else { res.writeHead(404).end('{}'); return; } }
+    else if (/\/storage\/kv\/namespaces\?/.test(req.url)) result = namespaces;
+    else if (req.url.endsWith('/storage/kv/namespaces')) {
+      const input = JSON.parse(body.toString());
+      result = { id: (input.title === 'context-anywhere-recovery-v1' ? 'c' : 'b').repeat(32), title: input.title };
+      namespaces.push(result);
+    }
+    else if (req.url.endsWith('/' + 'c'.repeat(32) + '/bulk')) {
+      if (failRecovery) { res.writeHead(403).end(JSON.stringify({ success: false, errors: [{ code: 1000, message: 'Synthetic recovery failure' }] })); return; }
+      recoveryValue = JSON.parse(JSON.parse(body.toString())[0].value);
+    }
+    else if (req.url.includes('/r2/buckets/')) result = { name: metadata.bindings.find(b => b.name === 'AI_MIRROR').bucket_name };
+    else if (req.url.endsWith('/' + 'b'.repeat(32))) result = { id: 'b'.repeat(32) };
     else if (/\/workers\/scripts\/[^/]+$/.test(req.url) && req.method === 'PUT') {
       const form = await new Request('http://fixture', { method: 'POST', headers: req.headers, body }).formData();
       uploaded = Buffer.from(await form.get('index.js').arrayBuffer());
       metadata = JSON.parse(await form.get('metadata').text());
+      workerName = req.url.split('/').at(-1); uploadCount++;
     } else if (req.url === '/health') { res.end(JSON.stringify({ service: 'obsidian-ai-mirror' })); return; }
-    else if (req.url === '/.well-known/oauth-authorization-server') { res.end(JSON.stringify({ authorization_endpoint: 'https://fixture.workers.dev/authorize' })); return; }
+    else if (req.url === '/note') {
+      assert.equal(body.toString(), '{}');
+      const write = metadata.bindings.find(b => b.name === 'MIRROR_TOKEN').text;
+      res.writeHead(req.headers.authorization === 'Bearer ' + write ? 400 : 403).end(JSON.stringify({ error: 'invalid note' })); return;
+    }
+    else if (req.url === '/.well-known/oauth-authorization-server') { res.end(JSON.stringify({ authorization_endpoint: `https://${workerName}.fixture.workers.dev/authorize`, token_endpoint: `https://${workerName}.fixture.workers.dev/token` })); return; }
     else if (!req.url.endsWith('/r2/buckets') && !req.url.endsWith('/subdomain')) {
       res.writeHead(500).end('Unexpected test endpoint'); return;
     }
@@ -126,6 +144,7 @@ test('packaged wizard survives hostile HTTPS, then authenticates and uploads the
   await writeFile(path.join(plugin, 'main.js'), '');
   await writeFile(path.join(vault, '.obsidian/community-plugins.json'), '["ai-bridge"]');
   assert.ok((await rpc('vault.inspect', { path: vault })).result.enabled);
+  assert.equal((await rpc('recovery.list', { accountId: account })).state.recoveryChoice, 'new');
   const deployed = await rpc('deploy', { accountId: account, label: 'security-fixture', deviceName: 'Synthetic test device',
     includePrefixes: 'Inbox', cfAccountConfirmed: true, pluginConfirmed: true });
   assert.equal(deployed.result?.deployed, true, deployed.error);
@@ -133,6 +152,17 @@ test('packaged wizard survives hostile HTTPS, then authenticates and uploads the
   const secrets = metadata.bindings.filter(item => item.type === 'secret_text');
   assert.equal(secrets.length, 2);
   assert.notEqual(secrets[0].text, secrets[1].text);
+  assert.equal(deployed.state.recoverySaved, false);
+  assert.match(deployed.result.warning, /mirror is ready/i);
+  assert.ok((await rpc('manual')).result.url.endsWith('/mcp'));
+  failRecovery = false;
+  const retried = await rpc('recovery.backup');
+  assert.equal(retried.result?.saved, true, retried.error || retried.result?.warning);
+  assert.equal(uploadCount, 1, 'Recovery retry must not redeploy the Worker');
+  assert.equal(recoveryValue.secrets.write, secrets.find(s => s.name === 'MIRROR_TOKEN').text);
+  assert.equal(recoveryValue.secrets.read, secrets.find(s => s.name === 'MIRROR_READ_KEY').text);
+  assert.equal(metadata.bindings.some(b => b.namespace_id === 'c'.repeat(32)), false);
+  assert.equal(retried.state.recoverySaved, true);
   assert.ok((await rpc('manual')).result.url.endsWith('/mcp'));
   await rpc('close');
 });

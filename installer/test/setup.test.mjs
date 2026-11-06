@@ -26,8 +26,10 @@ test('selected folders and excluded configuration are counted without reading no
   await writeFile(path.join(directory, '.obsidian', 'community-plugins.json'), '["ai-bridge"]');
   for (const name of ['Inbox/a.md', 'Private/b.md', '.obsidian/config.md', 'AI Bridge Conflicts/a.md']) await writeFile(path.join(directory, name), 'fixture');
   const vault = await inspectVault(directory); assert.equal(vault.enabled, true);
+  await assert.rejects(inspectVault(path.join(directory, 'missing-vault')), /找不到这个知识库文件夹/);
   assert.equal((await previewVault(vault, settingsFrom(options))).notes, 1);
   assert.equal((await previewVault(vault, settingsFrom({ ...options, includePrefixes: '', mirrorAll: true }))).notes, 2);
+  assert.equal((await previewVault(vault, settingsFrom({ ...options, mirrorAll: true }))).notes, 2, 'Sync all must override the saved custom scope');
   await writeFile(path.join(plugin, 'data.json'), JSON.stringify({ ...settingsFrom(options), workerUrl: 'https://example.workers.dev', token: 'different-token' }));
   assert.equal((await verifyImport(vault, { token: 'expected-token' })).imported, false);
 });

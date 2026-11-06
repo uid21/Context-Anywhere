@@ -4,6 +4,8 @@
 
 **中文** · [English](README.md)
 
+**Windows 向导 1.0.0：** 从 [1.0.0 发布页](https://github.com/uid21/Context-Anywhere/releases/tag/windows-setup-v1.0.0) 下载 ZIP，完整解压后运行 `ContextAnywhere.exe`。新版改进界面、控件过渡和平滑滚动，支持选择文件夹、笔记或整个知识库。新电脑选择本机知识库、登录原 Cloudflare 账号后，会自动发现已有镜像；选择后恢复连接设置，再配置这台设备的同步范围。详见 [Windows 向导说明](installer/README.md)。
+
 ## 功能概述
 
 Context Anywhere 是一套把 Obsidian 知识库变成 **AI 可远程读取的私人上下文层** 的完整工作流。
@@ -63,7 +65,7 @@ obsidian://new?vault=<vault>&file=<path>&content=<经过URL编码的内容>&appe
 
 ### Windows 安装向导
 
-从 [0.3.0 发布页](https://github.com/uid21/Context-Anywhere/releases/tag/windows-setup-v0.3.0) 下载 Windows ZIP，完整解压后双击 `ContextAnywhere.exe`，无需安装。向导支持简体中文和 English，可在界面内切换；提供账号和插件指引，帮助你选择同步范围、部署独立镜像，并将连接设置导入 Obsidian。
+从 [1.0.0 发布页](https://github.com/uid21/Context-Anywhere/releases/tag/windows-setup-v1.0.0) 下载 Windows ZIP，完整解压后双击 `ContextAnywhere.exe`，无需安装。向导支持简体中文和 English，可选择文件夹、单篇笔记或整个知识库；可以部署独立镜像，也可以登录原 Cloudflare 账号，自动发现已有部署并选择恢复，再将连接设置导入 Obsidian。新设备需要选择自己的本机知识库和同步范围。
 
 详见 [Windows 向导说明](installer/README.md)。
 
