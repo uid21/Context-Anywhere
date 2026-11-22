@@ -2,29 +2,81 @@
 
 **English** · [中文](README.zh-CN.md)
 
-Keep writing in Obsidian and ask questions in the AI app you already use. **Context Anywhere copies the notes you choose to your own Cloudflare account so your AI can read them from the web or your phone.** Once the notes have synced, the computer that holds your vault can be offline.
+Tools should do what they are best at: write in Obsidian, ask directly in any remote AI, and read from any device—even when the computer holding your vault is powered off. **Context Anywhere syncs your selected notes to your own Cloudflare account so both you and your AI can access them from the web or your phone.**
 
-Suppose you took meeting notes on your laptop and added a thought on your phone. Before the next meeting, ask your AI, “Which decisions did we leave open last week? Show me the notes they came from.” If you switch AI clients, connect the new one to the same mirror.
+Any AI client that supports custom remote MCP—whether a web app, mobile app, or a harness agent on another machine—can read your knowledge base and collaborate with you without tying your vault and AI to the same device.
 
-## Get started on Windows
+## Setup
 
-You need an Obsidian vault, a Cloudflare account with R2 enabled, and an AI client that supports remote MCP servers and OAuth. **AI Bridge is the Obsidian plugin** that syncs your notes. The Windows wizard sets up the mirror in your Cloudflare account.
+### Quick Start on Windows
 
-1. Install and enable the [AI Bridge community plugin](https://community.obsidian.md/plugins/ai-bridge) in the vault you want to use.
-2. Download the Windows x64 ZIP, extract it completely and open `ContextAnywhere.exe`. [Download the Windows wizard](https://github.com/uid21/Context-Anywhere/releases?q=windows-setup)
-3. Choose your local vault, sign in to Cloudflare and select the notes or folders to share. Create a mirror on first use, or restore your existing deployment on a new computer. With Obsidian open, select **Import into Obsidian** and check the first sync.
-4. In **Connect your AI**, copy the address ending in `/mcp`. Add it as a remote MCP server in your AI client, choose OAuth and enter the read password on your mirror’s authorization page. Try asking for a note you just synced.
+You need a Cloudflare account with R2 enabled, a local Obsidian vault, and any AI client that supports remote MCP and OAuth. **AI Bridge is the Obsidian plugin** that handles syncing, while the wizard provisions the cloud mirror in your Cloudflare account.
 
-**Using Gemini?** On the web, open Connected Apps, add a custom app and paste the MCP URL. Leave Client ID and Client secret blank. If you don’t see custom apps, check Google’s account and region requirements. [Gemini setup and availability](https://support.google.com/gemini/answer/17209137)
+1. Install and enable the [AI Bridge community plugin](https://community.obsidian.md/plugins/ai-bridge) in your vault (or install it manually from Releases).
+2. Download the [Windows x64 wizard ZIP](https://github.com/uid21/Context-Anywhere/releases?q=windows-setup), extract it completely, and run `ContextAnywhere.exe`.
+3. Select your local vault, sign in to Cloudflare, and choose the folders or notes you want to sync (create a new mirror on first use, or detect and restore an existing deployment on a new PC). Keep Obsidian open, click **Import into Obsidian** in the wizard, and verify the first sync.
+4. On the **Connect your AI** screen, copy the URL ending in `/mcp`. Add it as a remote MCP server in your AI client and select OAuth. **Enter your read password (`MIRROR_READ_KEY`) on the redirected mirror OAuth authorization page—not in your AI client's settings fields.** Once connected, ask your AI to find a note you just synced.
 
-[Windows setup, recovery and password management](installer/README.md#english) · [Manual setup for macOS, Linux or the command line](docs/manual-setup.md)
+More details: [Windows setup, recovery, and password management](installer/README.md#english)
 
-## What gets shared?
+### macOS / Linux or Manual Setup
 
-- **You choose the scope.** Start with a folder or select the whole vault. If you enable attachments, AI Bridge syncs supported files referenced by eligible notes. You can keep a separate AI mirror alongside an encrypted primary vault.
-- **AI access is read-only.** Your AI can search notes, read their contents and access permitted attachments. To save an answer, ask for an `obsidian://` link. Opening it lets Obsidian write the note on your device.
-- **Your other devices can sync too.** By default, Obsidian uploads to the mirror. To download your selected notes on another device, enable AI Bridge there, import an encrypted settings link and turn on two-way sync. When edits conflict, the older copy is kept locally in `AI Bridge Conflicts`.
+See the [manual setup guide for macOS, Linux, or CLI](docs/manual-setup.md).
 
-Cloudflare bills for usage above its free allowances. [Workers and KV pricing](https://developers.cloudflare.com/workers/platform/pricing/) · [R2 pricing](https://developers.cloudflare.com/r2/pricing/)
+### Deploy with an Agent
 
-Licensed under [PolyForm Noncommercial 1.0.0](LICENSE).
+Click **Copy** in the top-right corner of the block below and paste the prompt into an agent with local computer and terminal access:
+
+```text
+Help me deploy Context Anywhere from this repository:
+https://github.com/uid21/Context-Anywhere
+
+Open the repository and follow README.md, AGENTS.md, and the relevant setup guide. Use the released Windows wizard when available, or the command-line guide for terminal-only setup. First confirm my Cloudflare account, Obsidian vault, and which notes or folders I want to share. Restore an existing mirror if there is one, or create a dedicated mirror. Hand control to me for sign-in or authorization, then resume setup.
+
+Configure AI Bridge in Obsidian and sync the selected notes. Add the remote MCP server to my AI client, authorize it with OAuth, and verify that the client can read an approved note. Report the MCP URL, the actual sync scope, and the verification result. Keep credentials in secure storage or the appropriate authorization screen.
+```
+
+[Full agent deployment prompt (Chinese)](docs/deploy-with-agent.zh-CN.md)
+
+## How It Works
+
+Once **AI Bridge** is installed in Obsidian, your selected notes sync through a Cloudflare Worker into your private R2 bucket, and the Worker exposes a standard MCP Server endpoint. After syncing, your AI reads straight from the remote mirror—no connection to your main computer required.
+
+Available MCP tools:
+
+| Tool | Purpose |
+| --- | --- |
+| `search_notes` | Search note paths and content in the mirror |
+| `get_note` | Read the full content of a Markdown note |
+| `recent_notes` | List recently modified notes |
+| `list_note_attachments` | List attachments allowed for a specific note |
+| `read_attachment` | Read permitted images or explicitly allowed PDFs |
+
+For writing back to your vault, ask your AI to return an official Obsidian URI, such as:
+
+```text
+obsidian://new?vault=<vault>&file=<path>&content=<URL-encoded-content>&append
+```
+
+Opening the URI lets your local Obsidian app perform the actual write, after which AI Bridge and your existing sync setup handle propagation. MCP clients never have direct write permissions on your cloud mirror.
+
+### What Gets Shared?
+
+- **You choose the scope:** Start with a single folder or sync the whole vault. If you already use an encrypted primary sync, you can create a dedicated mirror bucket just for AI. Sensitive directories like `.obsidian` and local secrets are always excluded.
+- **Referenced attachments only:** When attachment sync is enabled, only supported files referenced by permitted notes are uploaded (nested folders like `Daily/assets/` work out of the box—no central attachments folder needed). Default limit is 8 MiB per file; unreferenced files stay local.
+- **Read-only AI access:** Your AI can search notes, read text, and inspect permitted attachments, with zero ability to alter or delete mirror files.
+- **Optional cross-device sync:** By default, Obsidian only uploads to the mirror. To pull notes onto another device, install AI Bridge there, import an encrypted settings link, and enable two-way sync. If edits conflict, the older copy is kept locally in `AI Bridge Conflicts`.
+
+## Usage
+
+Invoke the connector with `@` (or however your AI client triggers MCP tools) and ask in plain language—for example: *"Check my project notes from last week, list the open decisions, and cite the source notes."*
+
+## Estimated Cost (Cloudflare Free Tier)
+
+For a typical personal Markdown vault with occasional image attachments, everyday syncing and MCP reads fit comfortably within Cloudflare's Free Plan (enabling R2 requires adding a payment method, with no charge unless you exceed free limits):
+
+- **Cloudflare Workers:** 100,000 requests/day (10 ms CPU time per request) on the Free plan. Paid plans start at $5/month. [Official pricing](https://developers.cloudflare.com/workers/platform/pricing/)
+- **Cloudflare R2:** 10 GB storage/month, 1,000,000 Class A operations (writes), 10,000,000 Class B operations (reads), and zero egress fees. [Official pricing](https://developers.cloudflare.com/r2/pricing/)
+- **Cloudflare Workers KV:** Stores only lightweight OAuth state (never your note content). Free tier includes 1 GB storage, 100,000 reads/day, and 1,000 writes/deletes/day. [Official pricing](https://developers.cloudflare.com/workers/platform/pricing/) · [Limits](https://developers.cloudflare.com/kv/platform/limits)
+
+Licensed under PolyForm Noncommercial 1.0.0. See the [LICENSE](LICENSE) file for full terms.
