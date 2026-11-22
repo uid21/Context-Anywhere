@@ -263,7 +263,13 @@ class UiSmoke {
   return new SetupWindow(false,clipboard){ShowActivated=false,ShowInTaskbar=false,WindowStartupLocation=WindowStartupLocation.Manual,Left=-32000,Top=-32000};
  }
  static async Task Click(SetupWindow w,Button button){
-  var label=button.Content as TextBlock;Check(button.IsEnabled&&button.IsVisible,"Clicked unavailable button: "+(label==null?button.Content:label.Text));
+  var wait=Stopwatch.StartNew();
+  await Frame(w);
+  while(!(button.IsEnabled&&button.IsVisible)&&wait.ElapsedMilliseconds<3000){
+   await Task.Delay(30);await Frame(w);
+  }
+  var label=button.Content as TextBlock;
+  Check(button.IsEnabled&&button.IsVisible,"Button unavailable after layout: "+(label==null?button.Content:label.Text)+" (enabled="+button.IsEnabled+", visible="+button.IsVisible+")");
   button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));await Frame(w);
  }
  static string KeyLabel(ComboBox picker,int index){return ((TextBlock)((ComboBoxItem)picker.Items[index]).Content).Text;}
