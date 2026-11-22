@@ -12,3 +12,4 @@ installer/test-output/
 installer/.tools/
 worker/.wrangler-dry-run/
 .codex/
+AGENTS.md

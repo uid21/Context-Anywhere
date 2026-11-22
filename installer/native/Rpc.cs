@@ -11,6 +11,8 @@ namespace ContextAnywhereSetup {
     readonly JavaScriptSerializer json = new JavaScriptSerializer();
     readonly Dictionary<int, TaskCompletionSource<Dictionary<string, object>>> pending = new Dictionary<int, TaskCompletionSource<Dictionary<string, object>>>();
     int sequence;
+    Exception disconnected;
+    public event Action Disconnected;
     public string Language {get;set;}
     public event Action<string> Progress;
     public event Action<Dictionary<string, object>> StateChanged;
@@ -25,7 +27,8 @@ namespace ContextAnywhereSetup {
       start.EnvironmentVariables["CA_SETUP_LANGUAGE"] = Language;
       process = new Process(); process.StartInfo = start; process.EnableRaisingEvents = true;
       process.OutputDataReceived += (sender, eventArgs) => {
-        if (String.IsNullOrEmpty(eventArgs.Data)) return;
+        if (eventArgs.Data==null){Fail(new Exception(L.T("后台连接已断开，请重新连接。")));return;}
+        if (eventArgs.Data.Length==0)return;
         try {
           var message = json.Deserialize<Dictionary<string, object>>(eventArgs.Data);
           if (message.ContainsKey("event")) { var changed=StateChanged; if(changed!=null && message.ContainsKey("state")) changed((Dictionary<string,object>)message["state"]); return; }
@@ -37,17 +40,17 @@ namespace ContextAnywhereSetup {
       };
       // Provider/automation errors can contain secrets. The bridge reports sanitized errors on stdout.
       process.ErrorDataReceived += (sender, eventArgs) => {};
-      process.Exited += (sender, eventArgs) => Fail(new Exception(L.T("向导后台已退出。请重新打开部署向导继续。")));
       process.Start(); process.StandardInput.NewLine = "\n"; process.BeginOutputReadLine(); process.BeginErrorReadLine();
     }
     void Fail(Exception error) {
-      lock (pending) { foreach (var completion in pending.Values) completion.TrySetException(error); pending.Clear(); }
+      lock (pending) { if(disconnected!=null)return;disconnected=error;foreach (var completion in pending.Values) completion.TrySetException(error); pending.Clear(); }
+      var changed=Disconnected;if(changed!=null)changed();
     }
     public Task<Dictionary<string, object>> Call(string action, Dictionary<string, object> input) {
       var id = ++sequence; var completion = new TaskCompletionSource<Dictionary<string, object>>();
-      lock (pending) pending.Add(id, completion);
+      lock (pending) {if(disconnected!=null){completion.TrySetException(disconnected);return completion.Task;}pending.Add(id, completion);}
       try { process.StandardInput.WriteLine(json.Serialize(new { id = id, action = action, input = input, language = Language })); process.StandardInput.Flush(); }
-      catch { lock (pending) pending.Remove(id); completion.TrySetException(new Exception(L.T("向导后台无法连接，请重新打开向导。"))); }
+      catch { Fail(new Exception(L.T("后台连接已断开，请重新连接。"))); }
       return completion.Task;
     }
     public void Dispose() {

@@ -30,7 +30,8 @@ function shouldMirrorPath(path, includePrefixes = [], configDir = ".obsidian") {
     : [];
   if (prefixes.length === 0) return true;
 
-  return prefixes.some((prefix) => normalized === `${prefix}.md` || normalized.startsWith(`${prefix}/`));
+  return prefixes.some((prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`)
+    || (!prefix.toLowerCase().endsWith(".md") && normalized === `${prefix}.md`));
 }
 
 export { isConfigPath, isConflictPath, normalizePrefix, shouldMirrorPath };

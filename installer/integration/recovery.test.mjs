@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { createInterface } from 'node:readline';
-import { mkdtemp, mkdir, readFile, writeFile, readdir, realpath, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, readdir, realpath, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -21,7 +21,7 @@ const record = { kind: 'context-anywhere-recovery', version: 1, accountId: accou
   kvId: oauthId, workerUrl: origin, secrets: { write: token, read: readPassword }, createdAt: '2026-11-05T00:00:00.000Z', updatedAt: '2026-11-05T00:00:00.000Z' };
 const key = 'deployment:' + names.worker;
 
-test('a blank device discovers, restores, imports once and resumes with only a Cloudflare login', { timeout: 45000 }, async t => {
+for (const unreadable of [false, true]) test(`a device with ${unreadable ? 'an unreadable receipt' : 'no receipt'} discovers, restores, imports and resumes`, { timeout: 60000 }, async t => {
   // The runner's TEMP may use an 8.3 alias. Model Obsidian opening the canonical
   // vault path returned by inspection, rather than a different spelling of it.
   const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), 'ca-recovery-')));
@@ -31,12 +31,15 @@ test('a blank device discovers, restores, imports once and resumes with only a C
   await writeFile(path.join(plugin, 'manifest.json'), '{"id":"ai-bridge","version":"0.4.2"}');
   await writeFile(path.join(plugin, 'main.js'), '');
   await writeFile(path.join(vault, '.obsidian/community-plugins.json'), '["ai-bridge"]');
+  const payload = process.env.CA_TEST_PAYLOAD || path.join(root, 'installer/payload/index.js');
+  const objectKey='__context_anywhere/read-keys-v1.json', versionId='12345678-abcd-4321-abcd-123456789abc';
   const mf = new Miniflare(convertV4MiniflareOptions({ host: '127.0.0.1', port: 0, cf: false, workers: [{ name: names.worker, modules: true,
-    scriptPath: process.env.CA_TEST_PAYLOAD || path.join(root, 'installer/payload/index.js'), compatibilityDate: '2026-08-29',
+    scriptPath: payload, modulesRoot: path.dirname(payload), compatibilityDate: '2026-08-29',
     compatibilityFlags: ['nodejs_compat', 'global_fetch_strictly_public'], r2Buckets: ['AI_MIRROR'], kvNamespaces: ['OAUTH_KV'],
-    bindings: { MIRROR_TOKEN: token, MIRROR_READ_KEY: readPassword } }] }));
-  await mf.ready; t.after(() => mf.dispose());
+    bindings: { MIRROR_TOKEN: token, MIRROR_READ_KEY: readPassword, CF_VERSION_METADATA:{id:versionId,timestamp:new Date().toISOString()} } }] }));
+  t.after(() => mf.dispose()); await mf.ready;
   let archived = JSON.stringify(record), wrongBindings = false;
+  const privateValues=new Map(),bucket=await mf.getR2Bucket('AI_MIRROR');
   const managementCalls = [], mirrorCalls = [];
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://fixture'), pathname = url.pathname;
@@ -44,15 +47,25 @@ test('a blank device discovers, restores, imports once and resumes with only a C
     try {
       if (pathname.startsWith('/client/v4/')) {
         managementCalls.push({ path: pathname, method: req.method });
+        if (pathname.endsWith('/' + recoveryId + '/bulk') && req.method === 'PUT') {
+          for(const item of JSON.parse(body)) {if(item.key===key)archived=item.value;else privateValues.set(item.key,item.value);}
+          res.end(JSON.stringify({ success: true, result: {} })); return;
+        }
+        if(pathname.endsWith('/objects/'+objectKey)){
+          if(req.method==='PUT'){await bucket.put(objectKey,body);res.end('{"success":true,"result":{}}');return;}
+          const item=await bucket.get(objectKey);if(!item){res.writeHead(404).end('{}');return;}
+          res.end(await item.text());return;
+        }
         if (req.method !== 'GET') throw new Error('Recovery mutated cloud management');
         let result;
         if (pathname === '/client/v4/accounts') result = [{ id: account, name: 'Fixture account' }];
         else if (pathname.endsWith('/storage/kv/namespaces')) result = [{ id: recoveryId, title: RECOVERY_TITLE }];
-        else if (pathname.endsWith('/keys')) result = [{ name: key, metadata: { kind: record.kind, updatedAt: record.updatedAt } }];
-        else if (pathname.includes('/values/')) { res.end(archived); return; }
+        else if (pathname.endsWith('/keys')) result = url.searchParams.get('prefix')==='deployment:' ? [{ name: key, metadata: { kind: record.kind, updatedAt: record.updatedAt } }] : [];
+        else if (pathname.includes('/values/')) {const name=decodeURIComponent(pathname.split('/values/')[1]);if(name===key)res.end(archived);else if(privateValues.has(name))res.end(privateValues.get(name));else res.writeHead(404).end('{}');return;}
+        else if (pathname.endsWith('/deployments')) result={deployments:[{versions:[{percentage:100,version_id:versionId}]}]};
         else if (pathname.endsWith('/settings')) result = { tags: ['context-anywhere-setup:' + record.id], bindings: [
           { type: 'r2_bucket', name: 'AI_MIRROR', bucket_name: wrongBindings ? 'foreign-bucket' : names.bucket },
-          { type: 'kv_namespace', name: 'OAUTH_KV', namespace_id: oauthId }] };
+          { type: 'kv_namespace', name: 'OAUTH_KV', namespace_id: oauthId },{type:'version_metadata',name:'CF_VERSION_METADATA'}] };
         else if (pathname.endsWith('/workers/subdomain')) result = { subdomain: 'fixture' };
         else if (pathname.includes('/r2/buckets/')) result = { name: names.bucket };
         else if (pathname.endsWith('/' + oauthId)) result = { id: oauthId };
@@ -82,23 +95,31 @@ cp.spawn=(exe,args,options)=>{
 };require('node:module').syncBuiltinESMExports();
 `);
   const stateDir = path.join(directory, 'state');
+  const receipt = path.join(stateDir, 'deployment.dpapi');
+  const previousReceipt = Buffer.from('Synthetic record that DPAPI cannot decrypt');
+  if (unreadable) { await mkdir(stateDir); await writeFile(receipt, previousReceipt); }
   const bridge = process.env.CA_TEST_BUNDLE ? path.join(process.env.CA_TEST_BUNDLE, 'app/bridge.mjs') : path.join(root, 'installer/src/bridge.mjs');
   const messages = [];
-  function start() {
-    const child = spawn(process.execPath, ['--require', preload, bridge], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, CA_SETUP_DATA_DIR: stateDir, CA_SETUP_LANGUAGE: 'en' } });
+  function start(directory = stateDir) {
+    const child = spawn(process.execPath, ['--require', preload, bridge], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, CA_SETUP_DATA_DIR: directory, CA_SETUP_LANGUAGE: 'en' } });
     let sequence = 0; const pending = new Map(), lines = createInterface({ input: child.stdout });
-    lines.on('line', line => { const message = JSON.parse(line); if (message.progress || message.event) return; messages.push(message); pending.get(message.id)?.(message); });
+    lines.on('line', line => { const message = JSON.parse(line); if (message.progress || message.event) { messages.push(message); return; } pending.get(message.id)?.(message); });
     return { async call(action, input = {}) { let timer; const id = ++sequence;
-      try { return await new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('RPC timed out: ' + action)), 10000); pending.set(id, resolve); child.stdin.write(JSON.stringify({ id, action, input, language: 'en' })+'\n'); }); }
+      try { return await new Promise((resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('RPC timed out: ' + action)), 10000);
+        pending.set(id, message => { messages.push(['manual','secret.get'].includes(action) ? message.state : message); resolve(message); });
+        child.stdin.write(JSON.stringify({ id, action, input, language: 'en' })+'\n');
+      }); }
       finally { clearTimeout(timer); pending.delete(id); }
     }, async close() { child.stdin.end(); if (child.exitCode === null) await new Promise(resolve => child.once('exit', resolve)); lines.close(); } };
   }
   let rpc = start(); t.after(() => rpc.close());
-  assert.equal((await rpc.call('state')).state.deployed, false);
+  const initial = (await rpc.call('state')).state;
+  assert.equal(initial.deployed, false); assert.equal(initial.localRecordUnreadable, unreadable);
   assert.ok((await rpc.call('secret.get', { kind: 'write' })).error);
   assert.ok((await rpc.call('recovery.restore', { accountId: account, key })).error);
   assert.equal(managementCalls.length, 0);
-  await rpc.call('vault.inspect', { path: vault });
+  if (!unreadable) await rpc.call('vault.inspect', { path: vault });
   const before = await readFile(path.join(stateDir, 'deployment.dpapi'));
   assert.equal((await rpc.call('cloudflare.token', { token: 'synthetic-management-token' })).state.authenticated, true);
   assert.ok((await rpc.call('recovery.list', { accountId: 'd'.repeat(32) })).error);
@@ -114,6 +135,13 @@ cp.spawn=(exe,args,options)=>{
   archived = JSON.stringify(record);
   const restored = await rpc.call('recovery.restore', { accountId: account, key });
   assert.equal(restored.result?.restored, true, restored.error); assert.equal(restored.state.recovered, true);
+  if (unreadable) {
+    const backups = (await readdir(stateDir)).filter(file => file.endsWith('.bak'));
+    assert.equal(backups.length, 1); assert.deepEqual(await readFile(path.join(stateDir, backups[0])), previousReceipt);
+    assert.equal(restored.state.localRecordUnreadable, false); assert.equal(restored.state.vault, undefined);
+    assert.equal((await rpc.call('manual')).result.url, origin+'/mcp');
+    assert.equal((await rpc.call('vault.inspect', { path: vault })).result.path, vault);
+  }
   assert.equal(restored.state.settings, undefined);
   assert.ok((await rpc.call('deploy', {})).error); assert.ok((await rpc.call('obsidian.import', {})).error);
   const options = { deviceName: 'Brand new device', includePrefixes: 'Inbox', pluginConfirmed: true, bidirectionalEnabled: true };
@@ -137,10 +165,11 @@ cp.spawn=(exe,args,options)=>{
   await writeFile(path.join(otherPlugin, 'main.js'), '');
   await writeFile(path.join(other, '.obsidian/community-plugins.json'), '["ai-bridge"]');
   assert.match((await rpc.call('vault.inspect', { path: other })).error, /different vault/);
+  assert.match((await rpc.call('vault.inspect', { path: other, replaceMissingVault: true })).error, /different vault/);
   assert.equal((await rpc.call('obsidian.verify')).result.imported, true);
   assert.equal(JSON.stringify(messages).includes(token), false); assert.equal(JSON.stringify(messages).includes(readPassword), false);
-  assert.equal((await (await mf.getR2Bucket('AI_MIRROR')).list()).objects.length, 0);
-  assert.equal(managementCalls.every(c => c.method === 'GET'), true);
+  assert.deepEqual((await bucket.list()).objects.map(item=>item.key),[objectKey]);
+  assert.equal(managementCalls.every(c => c.method === 'GET' || c.method==='PUT'&&(c.path.endsWith('/objects/'+objectKey)||c.path.endsWith('/'+recoveryId+'/bulk'))),true);
   assert.equal(mirrorCalls.filter(c => c.method === 'PUT').every(c => c.path === '/note' && c.body === '{}'), true);
   await rpc.close(); rpc = start();
   const resumed = await rpc.call('state');
@@ -149,4 +178,26 @@ cp.spawn=(exe,args,options)=>{
   assert.equal((await rpc.call('secret.get', { kind: 'read' })).result.value, readPassword);
   assert.deepEqual((await new Store(stateDir).load()).secrets, record.secrets);
   assert.equal((await readFile(path.join(stateDir, 'deployment.dpapi'))).includes(Buffer.from(token)), false);
+  if (!unreadable) {
+    await rpc.close();
+    const freshDir = path.join(directory, 'blank-device');
+    rpc = start(freshDir);
+    archived = JSON.stringify({ ...record, secrets: { ...record.secrets, read: 'synthetic-old-cloud-password' } });
+    await rpc.call('cloudflare.token', { token: 'synthetic-management-token' });
+    await rpc.call('recovery.list', { accountId: account });
+    const fixed = await rpc.call('recovery.restore', { accountId: account, key });
+    assert.equal(fixed.result?.restored, true, fixed.error); assert.equal(fixed.state.recoverySaved, true, fixed.result?.warning);
+    assert.deepEqual((await new Store(freshDir).load()).secrets, record.secrets);
+    assert.deepEqual(JSON.parse(archived).secrets, {write:token});
+  }
+  if (unreadable) {
+    await rpc.close(); const moved = path.join(directory, 'Moved vault'); await rename(vault, moved); rpc = start();
+    assert.equal((await rpc.call('state')).state.missingVault, true);
+    assert.match((await rpc.call('vault.inspect', { path: moved })).error, /different vault/);
+    const relocated = await rpc.call('vault.inspect', { path: moved, replaceMissingVault: true });
+    assert.equal(relocated.result?.path, moved, relocated.error); assert.equal(relocated.state.missingVault, false);
+    assert.equal(relocated.state.settings, undefined); assert.equal(relocated.state.imported, false);
+    assert.ok((await rpc.call('obsidian.import')).error);
+    assert.equal((await rpc.call('recovery.configure', options)).result?.configured, true);
+  }
 });

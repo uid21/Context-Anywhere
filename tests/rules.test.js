@@ -21,6 +21,13 @@ test(".obsidian is always excluded, case-insensitively", () => {
   assert.equal(isConfigPath(".config\\plugins\\data.json", ".config"), true);
 });
 
+test("an individual note selected by the wizard includes only that note", () => {
+  const scope = ["Inbox/Idea.md"];
+  assert.equal(shouldMirrorPath("Inbox/Idea.md", scope), true);
+  assert.equal(shouldMirrorPath("Inbox/Idea.md.md", scope), false);
+  assert.equal(shouldMirrorPath("Inbox/Other.md", scope), false);
+});
+
 test("visible AI Bridge conflict copies are never mirrored back", () => {
   assert.equal(shouldMirrorPath("AI Bridge Conflicts/Journal/day (conflict).md", []), false);
 });

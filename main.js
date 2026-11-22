@@ -468,7 +468,7 @@ function shouldMirrorPath(path, includePrefixes = [], configDir = ".obsidian") {
   if (!normalized.toLowerCase().endsWith(".md") || isConfigPath(normalized, configDir) || isConflictPath(normalized)) return false;
   const prefixes = Array.isArray(includePrefixes) ? includePrefixes.map(normalizePrefix).filter(Boolean) : [];
   if (prefixes.length === 0) return true;
-  return prefixes.some((prefix) => normalized === `${prefix}.md` || normalized.startsWith(`${prefix}/`));
+  return prefixes.some((prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`) || !prefix.toLowerCase().endsWith(".md") && normalized === `${prefix}.md`);
 }
 
 // src/sync.js

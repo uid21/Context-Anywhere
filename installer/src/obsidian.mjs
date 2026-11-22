@@ -6,6 +6,7 @@ import { shouldMirrorPath, isConfigPath, isConflictPath } from '../../src/rules.
 import { powershell } from './storage.mjs';
 
 export async function inspectVault(directory, configDir = '.obsidian') {
+  if (typeof directory === 'string') directory = directory.trim().replace(/^"(.*)"$/, '$1');
   if (!directory || !path.isAbsolute(directory)) throw new SetupError("请选择 Obsidian 知识库所在的完整目录。", "Select the full path to your Obsidian vault.");
   if (!/^[^\\/:*?"<>|]+$/.test(configDir) || configDir === '.' || configDir === '..') throw new SetupError("Obsidian 配置目录名称无效。", "The Obsidian configuration folder name is invalid.");
   let root;
@@ -62,6 +63,9 @@ export async function previewVault(vault, settings) {
 export async function prepareImport(vault, settings) {
   if (!vault.enabled) throw new SetupError("请先在选中的知识库启用 AI Bridge。", "Enable AI Bridge in the selected vault first.");
   if (!vault.localImportSupported) throw new SetupError("当前 AI Bridge 版本暂不支持向导导入。请更新插件，重新打开 Obsidian 后重试。", "This version of AI Bridge does not support setup import. Update the plugin, reopen Obsidian, and try again.");
+  if (vault.version === '0.4.2' && settings.includePrefixes.some(item => /\.md$/i.test(item))) {
+    throw new SetupError("单篇笔记同步需要 AI Bridge 0.4.3 或更新版本。请更新插件、重新打开知识库，再导入。", "Syncing individual notes requires AI Bridge 0.4.3 or later. Update the plugin, reopen the vault, and import again.");
+  }
   const id = randomBytes(24).toString('hex');
   const directory = path.join(vault.path, vault.configDir, 'plugins', 'ai-bridge');
   // Remove only expired handoffs from this plugin's directory, including those

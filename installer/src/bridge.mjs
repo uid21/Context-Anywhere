@@ -1,46 +1,67 @@
 import { t, SetupError, withLanguage, currentLanguage } from './language.mjs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 import { randomBytes } from 'node:crypto';
-import { Store } from './storage.mjs';
-import { Cloudflare, login, resourceNames, deploy } from './cloudflare.mjs';
+import { Store, UnreadableRecord } from './storage.mjs';
+import { Cloudflare, login, readSlot, resourceNames, deploy, validBearer } from './cloudflare.mjs';
 import { inspectVault, previewVault, settingsFrom, prepareImport, verifyImport, openObsidian } from './obsidian.mjs';
 import { openBrowser, verifyMirror } from './browser.mjs';
-import { discoverRecoveries, readRecovery, verifyRecovery, validateRecord, writeRecovery, recoveryProgress } from './recovery.mjs';
+import { discoverRecoveries, manualRecord, readRecovery, writeRecovery, recoveryProgress } from './recovery.mjs';
+import { publicReadKeys, updateReadKey } from './read-keys.mjs';
+import { syncReadKeys } from './key-snapshot.mjs';
 
 // Private stdin/stdout pipe owned by the native .exe. No HTTP UI server.
 const sourceDirectory = path.dirname(fileURLToPath(import.meta.url));
 const root = process.env.CA_SETUP_ROOT || path.resolve(sourceDirectory, '..');
 const dataDirectory = process.env.CA_SETUP_DATA_DIR || path.join(process.env.LOCALAPPDATA || os.homedir(), 'ContextAnywhereSetup');
 const store = new Store(dataDirectory);
-const freshState = () => ({ id: randomBytes(4).toString('hex'), secrets: { write: randomBytes(32).toString('base64url'), read: randomBytes(32).toString('base64url') } });
-let state = await store.load() || freshState();
+const freshState = () => ({ id: randomBytes(4).toString('hex'), secrets: Object.fromEntries(['write', 'read'].map(kind => [kind, randomBytes(32).toString('base64url')])) });
+let state, loadError;
+try { state = await store.load(); }
+catch (error) { if (!(error instanceof UnreadableRecord)) loadError = error; }
+state ??= freshState();
+async function vaultPathMissing(vault) {
+  if (!vault?.path) return false;
+  try { return !(await stat(vault.path)).isDirectory(); }
+  catch (error) { return error.code === 'ENOENT' || error.code === 'ENOTDIR'; }
+}
+let missingVault = await vaultPathMissing(state.boundVault || state.vault);
 let cf, loginSession, importSession, loginError = '', authMethod = '', accounts = [], busy = false;
 let recoveryAccountId = '', recoveryChecked = false, recoveryChoice = '', recoveryNamespaceId = null, recoveries = [];
 let recoveryWarning = '';
 let uiLanguage = currentLanguage();
 const save = () => store.save(state);
+const persist = async next => { await store.save(next); state = next; };
+const loadModule = () => readFile(path.join(root, 'payload', 'index.js'));
 const emitState = () => withLanguage(uiLanguage, () => emit({ event: 'state', state: publicState() }));
 function publicState() {
   return { id: state.id, label: state.label || 'context-anywhere', names: state.names, accountId: state.accountId,
-    vault: state.vault, settings: state.settings, deployed: !!state.deployed, workerUrl: state.workerUrl,
+    vault: state.vault, missingVault, localRecordUnreadable: !!store.unreadable, settings: state.settings, deployed: !!state.deployed, workerUrl: state.workerUrl,
     imported: !!state.imported, workersSubdomain: state.workersSubdomain,
+    readKeys: state.deployed ? publicReadKeys(state) : [], pendingKeyUpdate: state.pendingKeyUpdate?.kind || '', pendingKeyAction: state.pendingKeyUpdate ? state.pendingKeyUpdate.action || 'rotate' : '',
     recovered: !!state.recovered, recoverySaved: !!state.recoverySaved, recoveryWarning: recoveryWarning ? redact(recoveryWarning.message) : '', recoveryAccountId, recoveryChecked, recoveryChoice, recoveries,
-    authenticated: !!cf, authMethod, accounts, loginError: loginError ? redact(loginError.message || loginError) : '', version: '1.0.0' };
+    authenticated: !!cf, authMethod, accounts, loginError: loginError ? redact(loginError.message || loginError) : '', version: '1.1.0' };
 }
-function manualConfig() {
+function localSecret(kind) {
+  if (state.pendingKeyUpdate?.kind === kind) throw new SetupError('这把读取密码正在更新，请先继续上次密码更新。', 'This read password is being updated. Resume the pending update first.');
+  if (!Object.hasOwn(state.secrets,kind)) throw new SetupError('请先添加或选择有效的读取密码。', 'Add or select an active read password first.');
+  return state.secrets[kind];
+}
+function manualConfig(input = {}) {
   if (!state.deployed) throw new SetupError("请先完成部署。", "Complete the deployment first.");
   const url = `${state.workerUrl}/mcp`;
-  return { url, readPassword: state.secrets.read,
+  const kind = input.kind || publicReadKeys(state).find(key => key.kind !== state.pendingKeyUpdate?.kind)?.kind;
+  if (input.kind && !readSlot(input.kind)) throw new SetupError('请选择读取密码。','Select a read password.');
+  return { url, ...(kind && input.includePassword !== false ? { readPassword:localSecret(kind) } : {}),
     text: t(`Context Anywhere\nMCP 地址：${url}\n认证：OAuth\n授权页面输入镜像读取密码（仅用于本镜像，不能上传或修改笔记）。\n此连接为只读，不需要 Write Token。`, `Context Anywhere\nMCP URL: ${url}\nAuthentication: OAuth\nEnter the mirror read password on the authorization page. It only grants access to this mirror and cannot upload or change notes.\nThis connection is read-only; no Write Token is needed.`),
     json: JSON.stringify({ mcpServers: { 'context-anywhere': { url } } }, null, 2),
     toml: `[mcp_servers.context_anywhere]\nurl = "${url}"\n` };
 }
 function redact(message, input = {}) {
-  for (const value of [state.secrets?.write, state.secrets?.read, cf?.token, input.token]) if (value) message = message.replaceAll(value, t("[已隐藏]", "[redacted]"));
+  for (const value of [...Object.values(state.secrets || {}), state.pendingKeyUpdate?.value, state.pendingKeyUpdate?.before, cf?.token, input.token, input.value, input.write, input.read, input.read2]) if (typeof value === 'string' && value) message = message.replaceAll(value, t("[已隐藏]", "[redacted]"));
   return message.slice(0, 500);
 }
 async function authenticate(token, method) {
@@ -49,6 +70,19 @@ async function authenticate(token, method) {
   if (!found.length) throw new SetupError("该授权没有可访问的 Cloudflare 账号。", "This authorization has no accessible Cloudflare accounts.");
   cf = candidate; authMethod = method; accounts = found.map(account => ({ id: account.id, name: account.name })); loginError = '';
   resetDiscovery();
+  if (hasOwnerSession()) {
+    try { await refreshKeys(); } catch (error) { recoveryWarning = error; }
+  }
+}
+
+function hasOwnerSession() { return state.deployed && cf && accounts.some(account=>account.id===state.accountId); }
+async function refreshKeys() {
+  const synced = await syncReadKeys({cf,state,loadModule});
+  if (synced.recoverySaved && synced.recoveryIndexVersion !== 2) {
+    try { Object.assign(synced, await writeRecovery(cf, synced)); }
+    catch (error) { synced.recoverySaved = false; recoveryWarning = error; }
+  }
+  await persist(synced);
 }
 
 function resetDiscovery() { recoveryAccountId = ''; recoveryChecked = false; recoveryChoice = ''; recoveryNamespaceId = null; recoveries = []; }
@@ -57,7 +91,7 @@ function requireAccount(accountId) {
 }
 async function savePrivateRecovery(progress) {
   progress(recoveryProgress());
-  try { Object.assign(state, await writeRecovery(cf, state)); await save(); recoveryWarning = ''; return true; }
+  try { Object.assign(state, await writeRecovery(cf, state)); await refreshKeys(); recoveryWarning = ''; return true; }
   catch (error) {
     state.recoverySaved = false; await save();
     recoveryWarning = new SetupError(() => t(`镜像已就绪，恢复记录待重试。当前电脑可以继续使用；新设备恢复将在保存成功后可用。${error instanceof SetupError ? error.message : ''}`, `Your mirror is ready. Retry saving recovery. This device can keep working; new-device recovery will be available after saving succeeds. ${error instanceof SetupError ? error.message : ''}`));
@@ -66,19 +100,34 @@ async function savePrivateRecovery(progress) {
 }
 
 export async function command(action, input, progress) {
+  if (loadError && action !== 'close') throw loadError;
   switch (action) {
     case 'state': return publicState();
-    case 'manual': return manualConfig();
+    case 'manual': if (input.includePassword !== false && hasOwnerSession()) await refreshKeys(); return manualConfig(input);
+    case 'secret.refresh': requireAccount(state.accountId); await refreshKeys(); return {refreshed:true};
     case 'secret.get': {
-      if (!state.deployed || !['read', 'write'].includes(input.kind)) throw new SetupError('请先完成部署或恢复。', 'Complete deployment or recovery first.');
-      return { value: state.secrets[input.kind] };
+      if (!state.deployed || !(readSlot(input.kind) || input.kind==='write')) throw new SetupError('请先完成部署或恢复。', 'Complete deployment or recovery first.');
+      if (input.kind!=='write' && hasOwnerSession()) await refreshKeys();
+      return { value: localSecret(input.kind) };
+    }
+    case 'secret.import':
+    case 'secret.add':
+    case 'secret.rename':
+    case 'secret.delete':
+    case 'secret.resume':
+    case 'secret.rotate': {
+      requireAccount(state.accountId);
+      if (!state.deployed) throw new SetupError('请先完成部署或恢复。', 'Complete deployment or recovery first.');
+      const result = await updateReadKey({ cf, state, action: action.slice(7), kind: input.kind, value: input.value, name:input.name, persist, loadModule });
+      const saved = state.recoverySaved && state.recoveryIndexVersion === 2 || await savePrivateRecovery(progress);
+      return {...result, saved, warning: recoveryWarning?.message || ''};
     }
     case 'recovery.list': {
       requireAccount(input.accountId); resetDiscovery(); recoveryAccountId = input.accountId;
       progress(t('正在查找这个账号的部署恢复记录', 'Looking for deployment recovery records in this account'));
       const result = await discoverRecoveries(cf, input.accountId);
       recoveryNamespaceId = result.namespaceId; recoveries = result.records; recoveryChecked = true;
-      recoveryChoice = recoveries.length ? '' : 'new';
+      recoveryChoice = recoveries.length || store.unreadable ? '' : 'new';
       return { records: recoveries, recoveries, recoveryChecked: true };
     }
     case 'recovery.new': {
@@ -87,21 +136,24 @@ export async function command(action, input, progress) {
       if (state.deployed || state.names) throw new SetupError('本机已有部署记录，请保留当前部署；不能在此覆盖为新部署。', 'This device already has a deployment record. Keep that deployment; it cannot be replaced here.');
       recoveryChoice = 'new'; return { selected: true };
     }
+    case 'recovery.attach':
     case 'recovery.restore': {
       requireAccount(input.accountId);
-      if (!recoveryChecked || recoveryAccountId !== input.accountId || !recoveries.some(item => item.key === input.key)) throw new SetupError('请刷新并选择账号中的恢复记录。', 'Refresh and select a recovery record from this account.');
+      const attaching = action==='recovery.attach';
+      if (!attaching && (!recoveryChecked || recoveryAccountId !== input.accountId || !recoveries.some(item => item.key === input.key))) throw new SetupError('请刷新并选择账号中的恢复记录。', 'Refresh and select a recovery record from this account.');
       progress(t('正在核对云端资源和已有凭据', 'Checking cloud resources and existing credentials'));
-      const record = await readRecovery(cf, input.accountId, recoveryNamespaceId, input.key);
+      const record = attaching ? await manualRecord(cf,input.accountId,input.worker,input.write) : await readRecovery(cf, input.accountId, recoveryNamespaceId, input.key);
       if (state.names && (state.accountId !== record.accountId || state.names.worker !== record.names.worker)) throw new SetupError('本机已有另一套部署记录，已停止恢复，未覆盖本机配置。', 'This device already has a different deployment. Recovery stopped without replacing the local record.');
-      await verifyRecovery(cf, record, recoveryNamespaceId);
-      const restored = { id: record.id, label: record.label, accountId: record.accountId, names: record.names, kvId: record.kvId,
-        secrets: record.secrets, workerUrl: record.workerUrl, bucketCreated: true, workerUploaded: true, deployed: true, recovered: true,
-        recoverySaved: true, recoveryNamespaceId, recoveryCreatedAt: record.createdAt, vault: state.vault,
+      const synced = await syncReadKeys({cf,state:record,loadModule,attaching});
+      const restored = { ...(record.manual ? {manual:true} : {}), id: record.id, label: record.label, accountId: record.accountId, names: record.names, kvId: record.kvId,
+        secrets: synced.secrets, readKeyNames:synced.readKeyNames, workerUrl: record.workerUrl, bucketCreated: true, workerUploaded: true, deployed: true, recovered: true,
+        recoverySaved: !attaching && record.version===2, recoveryIndexVersion:record.version, recoveryNamespaceId:synced.recoveryNamespaceId, recoveryCreatedAt: record.createdAt, vault: state.vault,
         boundVault: state.boundVault || (state.imported ? state.vault : undefined), imported: false };
       // A failed restore must never replace the old DPAPI record or local state.
       await importSession?.close(); importSession = null;
-      await store.save(restored); state = restored; recoveryChoice = 'restore'; recoveryWarning = '';
-      return { restored: true };
+      await store.save(restored, { replaceUnreadable: true }); state = restored; recoveryChoice = 'restore'; recoveryWarning = '';
+      if (!restored.recoverySaved) await savePrivateRecovery(progress);
+      return { restored: true, warning: recoveryWarning?.message || '' };
     }
     case 'recovery.configure': {
       if (!state.deployed || !state.vault || !input.pluginConfirmed) throw new SetupError('请先完成部署或恢复，并检查所选知识库。', 'Complete deployment or recovery and check the selected vault first.');
@@ -114,17 +166,20 @@ export async function command(action, input, progress) {
     case 'recovery.backup': {
       requireAccount(state.accountId);
       if (!state.deployed) throw new SetupError('请先完成原部署。', 'Complete the original deployment first.');
-      const now = new Date().toISOString();
-      const record = validateRecord({ ...state, kind: 'context-anywhere-recovery', version: 1, createdAt: state.recoveryCreatedAt || now, updatedAt: now }, state.accountId);
-      await verifyRecovery(cf, record, state.recoveryNamespaceId);
+      if (state.pendingKeyUpdate) throw new SetupError('请先完成待处理的读取密码更新。', 'Finish the pending read password update first.');
       const saved = await savePrivateRecovery(progress); return { saved, warning: recoveryWarning?.message || '' };
     }
     case 'vault.inspect': {
       const vault = await inspectVault(input.path, input.configDir || '.obsidian');
       const bound = state.boundVault || (state.imported ? state.vault : null);
-      if (bound && (bound.path !== vault.path || bound.configDir !== vault.configDir)) throw new SetupError("当前部署记录属于另一个知识库，不能直接换库。请使用该知识库的部署记录。", "This deployment record belongs to a different vault. Use the deployment record for the selected vault.");
+      const changed = bound && (bound.path !== vault.path || bound.configDir !== vault.configDir);
+      if (changed && !(input.replaceMissingVault === true && await vaultPathMissing(bound))) throw new SetupError("当前部署记录属于另一个知识库，不能直接换库。请使用该知识库的部署记录。", "This deployment record belongs to a different vault. Use the deployment record for the selected vault.");
+      if (changed && !(vault.enabled && vault.localImportSupported)) throw new SetupError('请更新并启用 AI Bridge，再检查知识库。', 'Update and enable AI Bridge, then check the vault.');
       if (state.vault && (state.vault.path !== vault.path || state.vault.configDir !== vault.configDir)) { await importSession?.close(); importSession = null; }
-      state.vault = vault; await save(); return vault;
+      const updated = { ...state, vault };
+      if (changed) { updated.boundVault = vault; updated.imported = false; delete updated.settings; }
+      if (!store.unreadable) await store.save(updated);
+      state = updated; missingVault = false; return vault;
     }
     case 'preview': {
       if (!state.vault) throw new SetupError("请先选择知识库。", "Select a vault first.");
@@ -142,11 +197,12 @@ export async function command(action, input, progress) {
     }
     case 'cloudflare.token': {
       if (cf) return { authenticated: true };
-      const token = String(input.token || '').trim();
-      if (!/^[A-Za-z0-9_-]{20,}$/.test(token)) throw new SetupError("请粘贴完整的 Cloudflare API Token，或点击上方按钮通过浏览器登录。", "Paste the complete Cloudflare API token, or use the button above to sign in through your browser.");
+      const token = input.token;
+      if (!validBearer(token)) throw new SetupError("请粘贴完整的 Cloudflare API Token，或点击上方按钮通过浏览器登录。", "Paste the complete Cloudflare API token, or use the button above to sign in through your browser.");
       progress(t("验证 Cloudflare 授权", "Verifying Cloudflare authorization")); await authenticate(token, 'token'); return { authenticated: true };
     }
     case 'deploy': {
+      if (state.pendingKeyUpdate) throw new SetupError('请先完成待处理的读取密码更新。', 'Finish the pending read password update first.');
       if (state.recovered) throw new SetupError('恢复流程只连接已有部署。请直接配置同步范围并导入，不会重部署或轮换密钥。', 'Recovery connects the existing deployment. Configure sync and import; setup will not redeploy or rotate credentials.');
       if (!input.cfAccountConfirmed || !input.pluginConfirmed) throw new SetupError("请先在第一步确认 Cloudflare 账号和 AI Bridge 已准备好。", "Confirm in step 1 that your Cloudflare account and AI Bridge are ready.");
       if (!cf || !state.vault) throw new SetupError("请先连接 Cloudflare 并选择知识库。", "Connect to Cloudflare and select a vault first.");
@@ -156,8 +212,8 @@ export async function command(action, input, progress) {
       if (state.names && (state.label !== input.label || state.accountId !== input.accountId)) throw new SetupError("部分资源已创建，请保留当前名称和账号继续。", "Some resources have already been created. Keep the current name and account to continue.");
       if (!state.vault.enabled) throw new SetupError("请先在选中的 Obsidian 库启用 AI Bridge，再重新检查知识库。", "Enable AI Bridge in the selected Obsidian vault, then check the vault again.");
       state.label = input.label; state.accountId = input.accountId; state.workersSubdomain = String(input.workersSubdomain || '').trim();
-      state.names = resourceNames(input.label, state.id); state.settings = settings; await save();
-      const module = await readFile(path.join(root, 'payload', 'index.js'));
+      state.names = resourceNames(input.label, state.id); state.settings = settings; await store.save(state, { replaceUnreadable: true });
+      const module = await loadModule();
       state.recoverySaved = false;
       await deploy({ cf, state, module, save, progress, saveRecovery: () => savePrivateRecovery(progress) });
       return { deployed: true, recoverySaved: !!state.recoverySaved, warning: recoveryWarning?.message || '' };
@@ -181,14 +237,16 @@ export async function command(action, input, progress) {
       if (result.imported) state.boundVault = state.vault;
       await save(); return { ...result, syncError: redact(result.syncError) };
     }
-    case 'chatgpt.open': {
+    case 'chatgpt.open':
+    case 'gemini.open': {
       if (!state.deployed) throw new SetupError("请先部署镜像。", "Deploy the mirror first.");
       await verifyMirror(state.workerUrl);
-      await openBrowser('https://chatgpt.com/plugins'); return { opened: true };
+      await openBrowser(action === 'gemini.open' ? 'https://gemini.google.com/apps' : 'https://chatgpt.com/plugins');
+      return { opened: true };
     }
     case 'export': {
       if (!input.path || !path.isAbsolute(input.path)) throw new SetupError("请选择保存文件的位置。", "Choose where to save the file.");
-      const manual = manualConfig();
+      const manual = manualConfig({includePassword:false});
       // Deliberately excludes all secrets. The read password is copied separately.
       await writeFile(input.path, `${manual.text}\n\n${manual.json}\n\n${manual.toml}`, { flag: 'wx' }); return { saved: true };
     }

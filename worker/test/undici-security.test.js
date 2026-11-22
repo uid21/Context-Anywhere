@@ -51,8 +51,8 @@ test('all THREE actual Wrangler factories and Miniflare load the same fixed pack
 test('repair is idempotent and refuses unexpected bytes; obsolete runtimes fail closed', () => {
   assert.equal(secureWrangler({ apply: true }), secureWrangler());
   assert.throws(() => externalizeUndici('unrecognized bundle'), /Unrecognized/);
-  for (const version of ['22.23.3', '24.22.0', '26.12.0', '20.19.0']) assert.throws(() => assertSafeRuntime(version), /security runtime/);
-  for (const version of ['22.23.4', '24.22.1', '26.12.1']) assert.doesNotThrow(() => assertSafeRuntime(version));
+  for (const version of ['22.23.4', '24.22.2', '26.13.0', '20.19.0']) assert.throws(() => assertSafeRuntime(version), /security runtime/);
+  for (const version of ['22.23.5', '24.22.3', '26.13.1']) assert.doesNotThrow(() => assertSafeRuntime(version));
 });
 
 for (const [name, fetcher] of [['Node built-in fetch', fetch], ['Wrangler/Miniflare Undici', undici.fetch]]) {

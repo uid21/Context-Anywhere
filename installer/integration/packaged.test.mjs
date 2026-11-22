@@ -8,6 +8,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { keyCloud } from '../test/key-cloud.fixture.mjs';
 
 const repo = fileURLToPath(new URL('../../', import.meta.url));
 const setupVersion = JSON.parse(await readFile(path.join(repo, 'installer/package.json'), 'utf8')).version;
@@ -21,6 +22,7 @@ test('packaged wizard survives hostile HTTPS, then authenticates and uploads the
   t.after(() => rm(directory, { recursive: true, force: true }));
   let attack = 'certificate', renegotiated = false, uploaded, metadata, recoveryValue, workerName, uploadCount = 0, failRecovery = true;
   const namespaces = [];
+  const cloud=keyCloud(()=>Object.fromEntries(metadata.bindings.filter(b=>b.type==='secret_text').map(b=>[b.name,b.text])));
   const wrongHost = { key: await pem('wrong-key'), cert: await pem('wrong-cert') };
   const sockets = new Set();
   const server = createServer({
@@ -41,6 +43,10 @@ test('packaged wizard survives hostile HTTPS, then authenticates and uploads the
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
     const body = Buffer.concat(chunks);
+    if (!(failRecovery && req.url.endsWith('/bulk'))) {
+      const reply=await cloud.request(req.url,req.method,body,req.headers);
+      if(reply){res.writeHead(reply.status);res.end(await reply.text());return;}
+    }
     let result = {};
     if (req.url.startsWith('/client/v4/accounts?')) result = [{ id: account, name: 'Synthetic test account' }];
     else if (req.url.endsWith('/workers/subdomain')) result = { subdomain: 'fixture' };
@@ -57,12 +63,23 @@ test('packaged wizard survives hostile HTTPS, then authenticates and uploads the
     }
     else if (req.url.includes('/r2/buckets/')) result = { name: metadata.bindings.find(b => b.name === 'AI_MIRROR').bucket_name };
     else if (req.url.endsWith('/' + 'b'.repeat(32))) result = { id: 'b'.repeat(32) };
+    else if (req.url.endsWith('/secrets') && req.method === 'PUT') {
+      const next = JSON.parse(body);
+      assert.equal(next.type, 'secret_text'); assert.match(next.name,/^MIRROR_READ_KEY(?:_\d+)?$/);
+      metadata.bindings=metadata.bindings.filter(b=>b.name!==next.name).concat(next);cloud.nextVersion();
+    }
+    else if (req.url.includes('/secrets/') && req.method==='DELETE') {metadata.bindings=metadata.bindings.filter(b=>b.name!==req.url.split('/').pop());cloud.nextVersion();}
     else if (/\/workers\/scripts\/[^/]+$/.test(req.url) && req.method === 'PUT') {
       const form = await new Request('http://fixture', { method: 'POST', headers: req.headers, body }).formData();
       uploaded = Buffer.from(await form.get('index.js').arrayBuffer());
       metadata = JSON.parse(await form.get('metadata').text());
       workerName = req.url.split('/').at(-1); uploadCount++;
-    } else if (req.url === '/health') { res.end(JSON.stringify({ service: 'obsidian-ai-mirror' })); return; }
+    } else if (req.url === '/health') {
+      const binding = metadata.bindings.find(b => b.type === 'secret_text' && req.headers.authorization === 'Bearer ' + b.text);
+      if (!binding) { res.writeHead(401).end('{}'); return; }
+      res.end(JSON.stringify({ service: 'obsidian-ai-mirror', readKeySyncVersion:1,
+        ...(binding.name === 'MIRROR_TOKEN' ? {} : { readKeySlot: binding.name === 'MIRROR_READ_KEY_2' ? 2 : 1 }) })); return;
+    }
     else if (req.url === '/note') {
       assert.equal(body.toString(), '{}');
       const write = metadata.bindings.find(b => b.name === 'MIRROR_TOKEN').text;
@@ -126,7 +143,7 @@ test('packaged wizard survives hostile HTTPS, then authenticates and uploads the
   });
   assert.equal((await rpc('state')).result.version, setupVersion);
   const runtime = JSON.parse(await readFile(runtimeReport));
-  assert.equal(runtime.node, '22.23.4');
+  assert.equal(runtime.node, '22.23.5');
   assert.equal(runtime.undici, '6.29.1');
   assert.equal(path.resolve(runtime.path), path.resolve(bundle, 'runtime/node.exe'));
   for (const mode of ['certificate', 'encoding']) {
@@ -151,18 +168,35 @@ test('packaged wizard survives hostile HTTPS, then authenticates and uploads the
   assert.deepEqual(uploaded, await readFile(path.join(bundle, 'payload/index.js')));
   const secrets = metadata.bindings.filter(item => item.type === 'secret_text');
   assert.equal(secrets.length, 2);
-  assert.notEqual(secrets[0].text, secrets[1].text);
+  assert.equal(new Set(secrets.map(secret => secret.text)).size, 2);
   assert.equal(deployed.state.recoverySaved, false);
   assert.match(deployed.result.warning, /mirror is ready/i);
-  assert.ok((await rpc('manual')).result.url.endsWith('/mcp'));
   failRecovery = false;
   const retried = await rpc('recovery.backup');
   assert.equal(retried.result?.saved, true, retried.error || retried.result?.warning);
   assert.equal(uploadCount, 1, 'Recovery retry must not redeploy the Worker');
-  assert.equal(recoveryValue.secrets.write, secrets.find(s => s.name === 'MIRROR_TOKEN').text);
-  assert.equal(recoveryValue.secrets.read, secrets.find(s => s.name === 'MIRROR_READ_KEY').text);
+  recoveryValue=JSON.parse(cloud.values.get('deployment:'+workerName).value);
+  assert.deepEqual(recoveryValue.secrets,{write:secrets.find(s => s.name === 'MIRROR_TOKEN').text});
   assert.equal(metadata.bindings.some(b => b.namespace_id === 'c'.repeat(32)), false);
   assert.equal(retried.state.recoverySaved, true);
   assert.ok((await rpc('manual')).result.url.endsWith('/mcp'));
+  const added = await rpc('secret.add',{name:'Gemini'});
+  assert.equal(added.result?.saved,true,added.error);const kind=added.result.kind;
+  assert.equal(added.state.readKeys.find(key=>key.kind===kind).name,'Gemini');
+  const first=(await rpc('secret.get',{kind})).result.value;
+  assert.notEqual(first,secrets.find(s=>s.name==='MIRROR_READ_KEY').text);
+  assert.equal((await rpc('secret.rotate',{kind})).result.saved,true);
+  assert.notEqual((await rpc('secret.get',{kind})).result.value,first);
+  assert.equal((await rpc('secret.rename',{kind,name:'Second app'})).state.readKeys.find(key=>key.kind===kind).name,'Second app');
+  assert.equal((await rpc('secret.delete',{kind})).state.readKeys.some(key=>key.kind===kind),false);
+  const external = 'synthetic-dashboard-password-change';
+  metadata.bindings.find(b => b.name === 'MIRROR_READ_KEY').text = external;
+  cloud.nextVersion();
+  const invalid = await rpc('secret.import', { kind: 'read2', value: external });
+  assert.ok(invalid.error); assert.ok(!JSON.stringify(invalid).includes(external));
+  const imported = await rpc('secret.import', { kind: 'read', value: external });
+  assert.equal(imported.result?.saved, true, imported.error || imported.result?.warning);
+  assert.equal((await rpc('secret.get',{kind:'read'})).result.value,external);
+  assert.equal(uploadCount, 1);
   await rpc('close');
 });

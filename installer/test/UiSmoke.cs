@@ -51,7 +51,9 @@ class UiSmoke {
  }
  static void Capture(SetupWindow w,string name,double scale=1){
   var root=(FrameworkElement)w.Content;
-  var bitmap=new RenderTargetBitmap((int)Math.Ceiling(root.ActualWidth*scale),(int)Math.Ceiling(root.ActualHeight*scale),96*scale,96*scale,PixelFormats.Pbgra32);
+  // At fractional Windows scaling, rounding up allocates a transparent strip
+  // outside the visual. Check opacity over all pixels covered by the window.
+  var bitmap=new RenderTargetBitmap((int)Math.Floor(root.ActualWidth*scale),(int)Math.Floor(root.ActualHeight*scale),96*scale,96*scale,PixelFormats.Pbgra32);
   bitmap.Render(root);var encoder=new PngBitmapEncoder();encoder.Frames.Add(BitmapFrame.Create(bitmap));
   using(var file=File.Create(Path.Combine(Output,L.Language+"-"+name+".png")))encoder.Save(file);
   var pixels=new byte[bitmap.PixelWidth*bitmap.PixelHeight*4];bitmap.CopyPixels(pixels,bitmap.PixelWidth*4,0);
@@ -81,13 +83,13 @@ class UiSmoke {
     if(failDiscovery)response["error"]="Temporary account lookup issue";
    }else if(action=="recovery.new"){fixture["recoveryChoice"]="new";}
    else if(action=="recovery.restore"){
-    Check((string)input["key"]=="deployment-a","Recovery sent the wrong selected deployment");
+    Check((string)input["key"]=="deployment-a"&&input.Count==2,"Recovery must send the selected deployment and account only");
     fixture["accountId"]=input["accountId"];fixture["deployed"]=true;fixture["recovered"]=true;fixture["recoverySaved"]=true;fixture["recoveryChoice"]="restore";fixture["workerUrl"]="https://notes-a.workers.dev";fixture.Remove("settings");
    }else if(action=="preview"){result["notes"]=1;}
    else if(action=="recovery.configure"){
     Check((string)input["deviceName"]=="This laptop"&&(string)input["includePrefixes"]=="New device notes"&&(bool)input["pluginConfirmed"],"Recovery lost this device's scope or plugin confirmation");
     fixture["settings"]=Data("deviceName",input["deviceName"],"includePrefixes",new object[]{"New device notes"});
-   }else if(action=="secret.get"){result["value"]=(string)input["kind"]=="write"?"fixture-upload-secret":"fixture-read-secret";}
+   }else if(action=="secret.refresh"){result["refreshed"]=true;}
    else if(action=="recovery.backup"){
     fixture["recoverySaved"]=!failBackup;fixture["recoveryWarning"]=failBackup?"Temporary recovery save issue":"";
     result["saved"]=!failBackup;result["warning"]=fixture["recoveryWarning"];
@@ -122,13 +124,6 @@ class UiSmoke {
   Check(Get<StackPanel>(w,"deploymentFields").Visibility==Visibility.Collapsed&&Get<StackPanel>(w,"deploymentActions").Visibility==Visibility.Collapsed&&Get<Expander>(w,"deploymentMaintenance").Visibility==Visibility.Collapsed,"Recovered flow still offers deployment");
   await(Task)Call(w,"Navigate");Check(Get<int>(w,"step")==3&&calls.Contains("recovery.configure")&&!calls.Contains("deploy"),"Restored scope did not save without redeploying");
   await Task.Delay(220);Capture(w,"recovery-import");if(L.Language=="en")CheckEnglish((DependencyObject)w.Content);
-  var original=SnapshotClipboard();Exception copyFailure=null;
-  try{
-   await(Task)Call(w,"CopySecret","write");Check((await ReadClipboardText())=="fixture-upload-secret","Upload credential was not copied");
-   await(Task)Call(w,"CopySecret","read");Check((await ReadClipboardText())=="fixture-read-secret","Read password was not copied");
-   Check(!Get<TextBlock>(w,"status").Text.Contains("fixture-")&&!Get<TextBlock>(w,"deployResult").Text.Contains("fixture-"),"Copy action displayed a secret");
-  }catch(Exception error){copyFailure=error;}
-  await RestoreClipboard(original);if(copyFailure!=null)throw copyFailure;
   fixture["authenticated"]=false;fixture["accounts"]=new object[0];Call(w,"Update",new Dictionary<string,object>(fixture));Call(w,"Restore");
   Check(Get<int>(w,"step")==3&&Get<Button>(w,"next").IsEnabled,"Saved recovery required a fresh login");
   fixture["recovered"]=false;fixture["recoverySaved"]=false;Call(w,"Update",new Dictionary<string,object>(fixture));Call(w,"Restore");
@@ -188,7 +183,7 @@ class UiSmoke {
   Check(scroll.IsEnabled&&!fields["deviceName"].IsEnabled&&!Get<Button>(w,"next").IsEnabled&&!Get<ComboBox>(w,"language").IsEnabled,"Busy UI should allow scrolling and lock edits");
   pending.SetResult(Data("result",Data("notes",2)));await request;
   Check(fields["deviceName"].IsEnabled&&Get<Button>(w,"next").IsEnabled,"Inputs did not unlock after request");
-  Call(w,"ShowStep",4);Get<ComboBox>(w,"aiClient").SelectedIndex=1;Set(w,"connectionStep",3);Call(w,"RenderConnection");Get<Button>(w,"connectionBack").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+  Call(w,"ShowStep",4);Get<ComboBox>(w,"aiClient").SelectedItem=L.T("其他 AI");Set(w,"connectionStep",3);Call(w,"RenderConnection");Get<Button>(w,"connectionBack").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
   Check(Get<int>(w,"connectionStep")==1,"Other AI returned to a duplicate password step");
   w.Close();
  }
@@ -232,13 +227,163 @@ class UiSmoke {
   double stopped=scroll.VerticalOffset;await Task.Delay(240);await Frame(w);Check(Math.Abs(scroll.VerticalOffset-stopped)<1,"Old wheel animation moved the new page");
   w.Close();
  }
+ static async Task AvailabilityFlows(){
+  var previous=Environment.GetEnvironmentVariable("CA_SETUP_DATA_DIR");
+  var directory=Path.Combine(Output,"unreadable-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(directory);
+  var receipt=Path.Combine(directory,"deployment.dpapi");File.WriteAllText(receipt,"synthetic unreadable fixture");
+  Environment.SetEnvironmentVariable("CA_SETUP_DATA_DIR",directory);
+  var w=new SetupWindow{ShowActivated=false,ShowInTaskbar=false,WindowStartupLocation=WindowStartupLocation.Manual,Left=-32000,Top=-32000};
+  try{
+   w.Show();await Frame(w);
+   for(int i=0;i<100&&!Get<bool>(w,"ready");i++)await Task.Delay(100);
+   Check(Get<bool>(w,"ready")&&(bool)Get<Dictionary<string,object>>(w,"state")["localRecordUnreadable"],"Invalid DPAPI record prevented startup");
+   var backend=Get<Rpc>(w,"rpc");Get<Process>(backend,"process").Kill();
+   var retry=Get<Button>(w,"retryBackend");for(int i=0;i<100&&retry.Visibility!=Visibility.Visible;i++)await Task.Delay(50);
+   Check(retry.IsEnabled&&retry.Visibility==Visibility.Visible,"Background exit did not expose retry");
+   retry.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+   for(int i=0;i<100&&!Get<bool>(w,"ready");i++)await Task.Delay(100);
+   Check(Get<bool>(w,"ready")&&Get<Rpc>(w,"rpc")!=backend,"Retry did not start a working backend");
+   Check(File.ReadAllText(receipt)=="synthetic unreadable fixture","Opening the wizard changed the unreadable receipt");
+   Get<Button>(w,"cloudRecovery").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Check(Get<int>(w,"step")==1,"Recovery required a vault");
+   var state=Data("authenticated",true,"accounts",new object[]{Data("id","one","name","Example")},"recoveryChecked",true,"recoveryAccountId","one","recoveries",new object[]{Data("key","fixture","label","example")},"localRecordUnreadable",true);
+   bool fail=true;Set(w,"send",new Func<string,Dictionary<string,object>,Task<Dictionary<string,object>>>((action,input)=>{
+    if(action=="secret.refresh")return Task.FromResult(Data("state",state,"result",Data("refreshed",true)));
+    Check(action=="recovery.restore"&&input.Count==2&&(string)input["accountId"]=="one"&&(string)input["key"]=="fixture","Restore asked for read passwords");
+    if(fail)return Task.FromResult(Data("state",state,"error","Fixture lookup failed"));
+    state["deployed"]=state["recovered"]=state["recoverySaved"]=true;return Task.FromResult(Data("state",state,"result",Data("restored",true)));
+   }));
+   Call(w,"Update",state);var restore=Get<Button>(w,"restoreDeployment");restore.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));await Frame(w);
+   Check(restore.IsEnabled&&Get<int>(w,"step")==1&&Get<ComboBox>(w,"deployments").SelectedIndex==0,"Failed restore lost the retry");
+   fail=false;restore.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));await Frame(w);
+   Check(Get<int>(w,"step")==3&&Get<Expander>(w,"credentialSection").IsExpanded&&Get<Button>(w,"selectLocalVault").IsVisible,"Vault-free recovery did not expose credentials and local vault selection");
+   Get<Button>(w,"selectLocalVault").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Check(Get<int>(w,"step")==0,"Could not select the local vault after finding credentials");
+  }finally{w.Close();Environment.SetEnvironmentVariable("CA_SETUP_DATA_DIR",previous);Directory.Delete(directory,true);}
+ }
+ static SetupWindow TestWindow(Action<string> clipboard=null){
+  return new SetupWindow(false,clipboard){ShowActivated=false,ShowInTaskbar=false,WindowStartupLocation=WindowStartupLocation.Manual,Left=-32000,Top=-32000};
+ }
+ static async Task Click(SetupWindow w,Button button){
+  var label=button.Content as TextBlock;Check(button.IsEnabled&&button.IsVisible,"Clicked unavailable button: "+(label==null?button.Content:label.Text));
+  button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));await Frame(w);
+ }
+ static string KeyLabel(ComboBox picker,int index){return ((TextBlock)((ComboBoxItem)picker.Items[index]).Content).Text;}
+ static void ExpandAncestors(FrameworkElement control){
+  DependencyObject parent=control;
+  while(parent!=null){var section=parent as Expander;if(section!=null)section.IsExpanded=true;parent=LogicalTreeHelper.GetParent(parent);}
+ }
+ static async Task ReadKeyFlows(){
+  var copied=new List<string>();var w=TestWindow(copied.Add);w.Show();await Frame(w);
+  try{
+   var primary=Data("kind","read","name","");var created=Data("kind","read8197","slot",8197,"name","Personal AI");var dashboard=Data("kind","read9247","slot",9247,"name","");
+   var keys=new List<object>{primary};var cachedKeys=keys.ToArray();
+   var fixture=Data("deployed",true,"authenticated",true,"accounts",new object[]{Data("id","one","name","Fixture")},"accountId","one","workerUrl","https://fixture.workers.dev","recoveryChecked",true,"recoveryAccountId","one");
+   bool failRefresh=false,failCopy=false;int refreshes=0;var commands=new List<string>();
+   Set(w,"send",new Func<string,Dictionary<string,object>,Task<Dictionary<string,object>>>((action,input)=>{
+    commands.Add(action);var result=Data();string error="";
+    if(action=="secret.refresh"){
+     refreshes++;
+     if(failRefresh)error="Fixture Cloudflare unavailable";
+     else{cachedKeys=keys.ToArray();result["refreshed"]=true;}
+    }else if(action=="manual"){
+     Check(input.ContainsKey("includePassword")&&!(bool)input["includePassword"],"AI page requested a password before the user chose one");result["url"]="https://fixture.workers.dev/mcp";
+    }else if(action=="secret.add"){
+     Check(input.Count==1&&(string)input["name"]=="Personal AI","Adding a password asked for an old value or slot");
+     fixture["pendingKeyUpdate"]="read8197";fixture["pendingKeyAction"]="add";error="Fixture update interrupted";
+    }else if(action=="secret.resume"){
+     Check(input.Count==0,"Pending addition needs no slot or password re-entry");keys.Add(created);cachedKeys=keys.ToArray();
+     fixture.Remove("pendingKeyUpdate");fixture.Remove("pendingKeyAction");result["kind"]="read8197";
+    }else if(action=="secret.rename"){
+     Check((string)input["kind"]=="read8197"&&(string)input["name"]=="Work assistant","Rename sent the wrong key or label");created["name"]=input["name"];
+    }else if(action=="secret.import"){
+     Check((string)input["kind"]=="read8197"&&(string)input["value"]=="fixture-current-value","Import requested the wrong password");
+    }else if(action=="secret.get"){
+     string selected=(string)input["kind"];commands.Add("get:"+selected);
+     if(failCopy)error="Fixture password check failed";
+     else result["value"]="fixture-value-"+selected;
+    }else if(action!="chatgpt.open"&&action!="gemini.open")throw new Exception("Unexpected read-key command: "+action);
+    var state=new Dictionary<string,object>(fixture){{"readKeys",cachedKeys}};
+    return Task.FromResult(error==""?Data("state",state,"result",result):Data("state",state,"error",error));
+   }));
+   Call(w,"Update",new Dictionary<string,object>(fixture){{"readKeys",cachedKeys}});
+   Call(w,"ShowStep",3);Get<Expander>(w,"credentialSection").IsExpanded=true;await Frame(w);
+   var managed=Get<ComboBox>(w,"managedReadKey");var picker=Get<ComboBox>(w,"connectionReadKey");var client=Get<ComboBox>(w,"aiClient");
+   Check(refreshes==1&&managed.Items.Count==1&&KeyLabel(managed,0)==L.T("默认读取密码"),"Fresh deployment should show exactly one read password");
+   Get<Expander>(w,"addKeySection").IsExpanded=true;Get<TextBox>(w,"newKeyName").Text="Personal AI";
+   var add=Get<Button>(w,"addReadKey");var resume=Get<Button>(w,"resumeReadKey");
+   await Click(w,add);
+   Check(managed.Items.Count==1&&!add.IsEnabled&&resume.IsVisible&&Get<Button>(w,"copyReadKey").IsEnabled,"Interrupted add blocked the old password or lost retry");
+   await Click(w,resume);
+   Check(managed.Items.Count==2&&KeyLabel(managed,1)=="Personal AI"&&(string)managed.SelectedValue=="read8197"&&resume.Visibility==Visibility.Collapsed,"New password was not named and available after retry");
+   var name=Get<TextBox>(w,"managedKeyName");ExpandAncestors(name);name.Text="Work assistant";await Frame(w);await Click(w,Get<Button>(w,"renameReadKey"));
+   Check(KeyLabel(managed,1)=="Work assistant","Rename did not update the list");
+   var imported=Get<PasswordBox>(w,"importedReadKey");ExpandAncestors(imported);imported.Password="fixture-current-value";await Frame(w);await Click(w,Get<Button>(w,"importReadKey"));
+   Check(Get<PasswordBox>(w,"importedReadKey").Password=="","Password import left its plaintext input in the form");
+   await Click(w,Get<Button>(w,"copyReadKey"));Check(copied[copied.Count-1]=="fixture-value-read8197","Manager did not copy the selected key");
+   await(Task)Call(w,"CopySecret","write");Check(copied[copied.Count-1]=="fixture-value-write","Read key management changed upload credential copying");
+   keys.Add(dashboard);await Click(w,Get<Button>(w,"next"));
+   Check(refreshes==2&&Get<int>(w,"step")==4&&picker.Items.Count==3&&KeyLabel(picker,2)=="MIRROR_READ_KEY_9247","AI page failed to auto-discover a Dashboard password");
+   var steps=Get<WrapPanel>(w,"connectionSteps");var copy=Get<Button>(w,"connectionPrimary");
+   await Click(w,(Button)steps.Children[2]);Check(!copy.IsEnabled&&picker.SelectedIndex==-1,"Multiple passwords should start with a deliberate choice");
+   picker.SelectedValue="read9247";await Click(w,copy);Check(copied[copied.Count-1]=="fixture-value-read9247","ChatGPT could not choose the password added in Dashboard");
+   client.SelectedItem="Gemini";await Click(w,copy);
+   Check(commands.Contains("gemini.open")&&picker.IsVisible&&picker.SelectedIndex==-1,"Gemini picked a password based on its service name or index");
+   picker.SelectedValue="read";await Click(w,copy);Check(copied[copied.Count-1]=="fixture-value-read","Gemini could not choose the original password");
+   client.SelectedItem=L.T("其他 AI");await Click(w,(Button)steps.Children[1]);picker.SelectedValue="read8197";
+   await Click(w,copy);Check(copied[copied.Count-1]=="fixture-value-read8197","Other AI could not use its own password");
+   client.SelectedIndex=0;await Click(w,(Button)steps.Children[2]);
+   Check((string)picker.SelectedValue=="read9247","Switching AI services lost the user's independent choice");
+   var language=Get<ComboBox>(w,"language");int oldLanguage=language.SelectedIndex;language.SelectedIndex=1-oldLanguage;await Frame(w);
+   Check((string)picker.SelectedValue=="read9247"&&KeyLabel(picker,2)=="MIRROR_READ_KEY_9247","Language switching lost key labels or selection");
+   language.SelectedIndex=oldLanguage;await Frame(w);
+   w.Width=480;w.Height=360;await Frame(w);
+   var scroll=Get<ScrollViewer>(w,"scroll");Check(scroll.ExtentWidth<=scroll.ViewportWidth+1&&picker.IsVisible&&copy.IsVisible,"Password selection overflows on a small window");
+   failRefresh=true;Call(w,"RequestReadKeyRefresh");await Frame(w);
+   Check(picker.Items.Count==3&&Get<TextBlock>(w,"connectionKeySyncStatus").Text==L.T("未能刷新云端读取密码。列表为本机缓存，可重试。"),"Failed refresh advertised the cache as current or discarded it");
+   int before=copied.Count;failCopy=true;await Click(w,copy);
+   Check(copied.Count==before&&Get<int>(w,"connectionStep")==2,"Failed live secret lookup copied a stale value or claimed success");
+   failRefresh=failCopy=false;keys.Remove(dashboard);Call(w,"RequestReadKeyRefresh");await Frame(w);
+   Check(picker.Items.Count==2&&picker.SelectedIndex==-1&&!copy.IsEnabled,"A removed key silently fell back to another password");
+   fixture["authenticated"]=false;fixture["accounts"]=new object[0];Call(w,"Update",new Dictionary<string,object>(fixture){{"readKeys",cachedKeys}});
+   Check(Get<TextBlock>(w,"connectionKeySyncStatus").Text==L.T("当前显示本机保存的读取密码。登录原部署所属的 Cloudflare 账号可刷新云端列表。"),"Offline mode did not describe its local cache");
+   picker.SelectedValue="read8197";await Click(w,copy);Check(copied[copied.Count-1]=="fixture-value-read8197","Offline copy did not use the selected locally saved password");
+   Check(!Get<TextBlock>(w,"status").Text.Contains("fixture-value-"),"Copy displayed a plaintext credential");
+   if(L.Language=="en")CheckEnglish((DependencyObject)w.Content);
+  }finally{w.Close();}
+ }
+ static async Task AttachFlow(){
+  var w=TestWindow();w.Show();await Frame(w);
+  try{
+   Call(w,"ShowStep",1);var state=Data("authenticated",true,"accounts",new object[]{Data("id","one","name","Fixture")},"recoveryChecked",true,"recoveryAccountId","one");
+   bool fail=true;Set(w,"send",new Func<string,Dictionary<string,object>,Task<Dictionary<string,object>>>((action,input)=>{
+    if(action=="secret.refresh")return Task.FromResult(Data("state",state,"result",Data("refreshed",true)));
+    Check(action=="recovery.attach"&&input.Count==3&&(string)input["worker"]=="existing-worker"&&(string)input["write"]=="fixture-upload-value"&&(string)input["accountId"]=="one","Manual attach used the wrong deployment credentials");
+    if(fail)return Task.FromResult(Data("state",state,"error","Fixture verification failed"));
+    state["deployed"]=state["recovered"]=state["recoverySaved"]=true;state["accountId"]="one";
+    return Task.FromResult(Data("state",state,"result",Data("restored",true)));
+   }));
+   Call(w,"Update",state);Get<Expander>(w,"attachDeploymentSection").IsExpanded=true;
+   var worker=Get<TextBox>(w,"attachWorker");var write=Get<PasswordBox>(w,"attachWrite");var connect=Get<Button>(w,"attachDeployment");
+   worker.Text="existing-worker";write.Password="fixture-upload-value";await Frame(w);await Click(w,connect);
+   Check(Get<int>(w,"step")==1&&worker.Text=="existing-worker"&&write.Password=="fixture-upload-value","A failed attach discarded the form or changed pages");
+   fail=false;await Click(w,connect);
+   Check(Get<int>(w,"step")==3&&write.Password==""&&worker.Text==""&&Get<Expander>(w,"credentialSection").IsExpanded,"Manual attach did not continue into recovered deployment");
+  }finally{w.Close();}
+ }
  [STAThread]static void Main(){
   Directory.CreateDirectory(Output);var app=new Application{ShutdownMode=ShutdownMode.OnExplicitShutdown};
   app.Startup+=async(s,e)=>{try{
+   if(Environment.GetEnvironmentVariable("CA_UI_TEST_FILTER")=="availability"){
+    await AvailabilityFlows();File.WriteAllText(Path.Combine(Output,"ui-result.json"),"{\"passed\":true,\"availability\":true}");app.Shutdown(0);return;
+   }
    if(Environment.GetEnvironmentVariable("CA_UI_TEST_FILTER")=="motion"){
     foreach(var locale in new[]{"zh-CN","en"}){L.Select(locale,false);await MotionFlows();}
     File.WriteAllText(Path.Combine(Output,"ui-result.json"),"{\"passed\":true,\"motionFlows\":true,\"languages\":[\"zh-CN\",\"en\"]}");app.Shutdown(0);return;
    }
+   if(Environment.GetEnvironmentVariable("CA_UI_TEST_FILTER")=="read-keys"){
+    foreach(var locale in new[]{"zh-CN","en"}){L.Select(locale,false);await ReadKeyFlows();await AttachFlow();}
+    File.WriteAllText(Path.Combine(Output,"ui-result.json"),"{\"passed\":true,\"readKeyFlows\":true,\"manualAttach\":true,\"languages\":[\"zh-CN\",\"en\"]}");app.Shutdown(0);return;
+   }
+   await AvailabilityFlows();
    int pagesChecked=0;long resizeMilliseconds=0,maxResizeMilliseconds=0;double dpiScale=1;
    foreach(var locale in new[]{"zh-CN","en"}){
    L.Select(locale,false);
@@ -262,7 +407,8 @@ class UiSmoke {
    w.Width=1040;w.Height=800;Call(w,"ShowStep",4);await Frame(w);
    Check(Get<ComboBox>(w,"aiClient").SelectedIndex==0,"ChatGPT default");
    Check(Get<Button>(w,"connectionPrimary").Content.ToString().Contains("ChatGPT"),"Default copy/open action");
-   var fields=Get<Dictionary<string,TextBox>>(w,"text");fields["mcpUrl"].Text="https://fixture.workers.dev/mcp";fields["appName"].Text="Fixture Notes";Set(w,"password","fixture-read-password");
+   var fields=Get<Dictionary<string,TextBox>>(w,"text");fields["mcpUrl"].Text="https://fixture.workers.dev/mcp";fields["appName"].Text="Fixture Notes";
+   var readFixture=Data("deployed",true,"readKeys",new object[]{Data("kind","read","name","")});Call(w,"Update",readFixture);
    await Frame(w);Capture(w,"chatgpt-step-one");
    var primary=Get<Button>(w,"connectionPrimary");primary.ApplyTemplate();
    Check(primary.Template.FindName("MotionFocus",primary)!=null,"Button focus feedback missing");
@@ -282,16 +428,29 @@ class UiSmoke {
     Check(Get<TextBlock>(w,"status").Text.StartsWith(L.T("地址已复制，后续信息仍可继续复制。")),"Browser failure guidance missing");
     navigation=Get<WrapPanel>(w,"connectionSteps");
     ((Button)navigation.Children[2]).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-    await Frame(w);Check(Get<PasswordBox>(w,"readPassword").IsVisible,"Password field not reachable after browser failure");
+    await Frame(w);Check(Get<ComboBox>(w,"connectionReadKey").IsVisible,"Password list not reachable after browser failure");
+    Set(w,"send",new Func<string,Dictionary<string,object>,Task<Dictionary<string,object>>>((action,input)=>{
+      if(action=="gemini.open")return Task.FromResult(Data("state",readFixture,"result",Data()));
+      Check(action=="secret.get"&&(string)input["kind"]=="read","Single deployed password was not selected");
+      return Task.FromResult(Data("state",readFixture,"result",Data("value","fixture-read-password")));
+    }));
     Capture(w,"password-after-browser-failure");
     await(Task)Call(w,"AdvanceConnection");Check((await ReadClipboardText())=="fixture-read-password","Password copy after browser failure");
-    Get<ComboBox>(w,"aiClient").SelectedIndex=1;Check(Get<Button>(w,"connectionPrimary").Content.ToString()==L.T("复制 MCP 地址"),"Other AI label");
+    Get<ComboBox>(w,"aiClient").SelectedItem=L.T("其他 AI");Check(Get<Button>(w,"connectionPrimary").Content.ToString()==L.T("复制 MCP 地址"),"Other AI label");
     Check(Get<WrapPanel>(w,"connectionSteps").Children.Count==2,"Other AI password navigation missing");
     await(Task)Call(w,"AdvanceConnection");Check((await ReadClipboardText())==fields["mcpUrl"].Text,"Other AI address copy");
     await(Task)Call(w,"AdvanceConnection");Check((await ReadClipboardText())=="fixture-read-password","Other AI password copy");
+    var clientPicker=Get<ComboBox>(w,"aiClient");
+    clientPicker.SelectedItem="Gemini";
+    Check(primary.Content.ToString()==L.T("复制 MCP 地址并打开 Gemini"),"Gemini address action");
+    await(Task)Call(w,"AdvanceConnection");
+    Check((await ReadClipboardText())==fields["mcpUrl"].Text,"Gemini did not receive the MCP URL");
+    await(Task)Call(w,"AdvanceConnection");
+    Check((await ReadClipboardText())=="fixture-read-password","Existing single-key deployment could not authorize Gemini");
     Get<ComboBox>(w,"aiClient").SelectedIndex=0;Set(w,"connectionStep",1);Call(w,"RenderConnection");
     await(Task)Call(w,"AdvanceConnection");Check((await ReadClipboardText())=="Fixture Notes","ChatGPT name copy");
     await(Task)Call(w,"AdvanceConnection");Check((await ReadClipboardText())=="fixture-read-password","ChatGPT password copy");
+    Set(w,"send",null);
    } catch(Exception copyError){copyFailure=copyError;}
    // .NET Framework's compiler does not support await inside finally.
    try {await RestoreClipboard(original);}
@@ -308,7 +467,7 @@ class UiSmoke {
    int themeBefore=Get<ComboBox>(w,"theme").SelectedIndex;
    Get<ComboBox>(w,"language").SelectedIndex=locale=="en"?0:1;await Frame(w);
    Check(fields["deviceName"].Text=="My laptop"&&fields["includePrefixes"].Text=="Inbox\nProjects","Language switch lost input");
-   Check(Get<PasswordBox>(w,"cfToken").Password=="fixture-token"&&Get<string>(w,"password")=="fixture-read-password","Language switch lost credentials");
+   Check(Get<PasswordBox>(w,"cfToken").Password=="fixture-token","Language switch lost typed credentials");
    Check(Get<int>(w,"step")==4&&Get<int>(w,"connectionStep")==2&&Get<ComboBox>(w,"theme").SelectedIndex==themeBefore,"Language switch changed navigation/theme");
    Check(Get<ComboBox>(w,"accounts").SelectedIndex==0&&Get<Dictionary<string,CheckBox>>(w,"checks")["bidirectionalEnabled"].IsChecked==true,"Language switch lost account/settings");
    for(int page=0;page<5;page++){Call(w,"ShowStep",page);await Frame(w);if(L.Language=="en")CheckEnglish((DependencyObject)w.Content);}
@@ -327,6 +486,7 @@ class UiSmoke {
     Check(frame.ElapsedMilliseconds<500,"Single resize layout stalls: "+frame.ElapsedMilliseconds);
    }timer.Stop();resizeMilliseconds+=timer.ElapsedMilliseconds;w.Close();
    await RecoveryFlows();
+   await ReadKeyFlows();await AttachFlow();
    await UsabilityFlows();
    await MotionFlows();
    // Exercise the real backend after the first fully rendered frame, using an isolated receipt directory.

@@ -26,8 +26,12 @@ test('selected folders and excluded configuration are counted without reading no
   await writeFile(path.join(directory, '.obsidian', 'community-plugins.json'), '["ai-bridge"]');
   for (const name of ['Inbox/a.md', 'Private/b.md', '.obsidian/config.md', 'AI Bridge Conflicts/a.md']) await writeFile(path.join(directory, name), 'fixture');
   const vault = await inspectVault(directory); assert.equal(vault.enabled, true);
+  assert.equal((await inspectVault(`"${directory}"`)).path, vault.path);
   await assert.rejects(inspectVault(path.join(directory, 'missing-vault')), /找不到这个知识库文件夹/);
   assert.equal((await previewVault(vault, settingsFrom(options))).notes, 1);
+  const oneNote = settingsFrom({ ...options, includePrefixes: 'Inbox/a.md' });
+  assert.equal((await previewVault(vault, oneNote)).notes, 1);
+  await assert.rejects(prepareImport({ ...vault, version: '0.4.2', localImportSupported: true }, oneNote), /0\.4\.3/);
   assert.equal((await previewVault(vault, settingsFrom({ ...options, includePrefixes: '', mirrorAll: true }))).notes, 2);
   assert.equal((await previewVault(vault, settingsFrom({ ...options, mirrorAll: true }))).notes, 2, 'Sync all must override the saved custom scope');
   await writeFile(path.join(plugin, 'data.json'), JSON.stringify({ ...settingsFrom(options), workerUrl: 'https://example.workers.dev', token: 'different-token' }));
@@ -71,7 +75,7 @@ test('an existing unrelated Worker prevents all resource mutations', async () =>
   assert.equal(calls.some(([, method]) => method !== 'GET'), false);
 });
 
-test('partial deployment resumes with the same R2/KV and distinct read/write secret bindings', async () => {
+test('existing deploy preserves live Worker secrets even when local values are stale', async () => {
   const state = fixtureState(); state.bucketCreated = true; state.kvId = 'fixture-kv';
   const calls = []; let metadata;
   const cf = { request: async (url, method = 'GET', body) => {
@@ -85,7 +89,8 @@ test('partial deployment resumes with the same R2/KV and distinct read/write sec
   } };
   await deploy({ cf, state, module: 'export default {}', save: async () => {}, progress: () => {}, fetcher: async url => new Response(JSON.stringify(url.endsWith('/health') ? { service: 'obsidian-ai-mirror' } : { authorization_endpoint: 'https://fixture/authorize' })) });
   assert.equal(calls.some(([url,method]) => method === 'POST' && /buckets$|namespaces$/.test(url)), false);
-  assert.deepEqual(metadata.bindings.filter(binding => binding.type === 'secret_text').map(binding => binding.text), ['fixture-write','fixture-read']);
+  assert.deepEqual(metadata.keep_bindings, ['secret_text']);
+  assert.equal(metadata.bindings.some(binding => binding.type === 'secret_text'), false);
   assert.equal(state.deployed, true);
 });
 

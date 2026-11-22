@@ -1,71 +1,57 @@
-# Context Anywhere Windows 部署向导
+# Context Anywhere Windows 向导
 
-从 [Windows 向导 1.0.0 发布页](https://github.com/uid21/Context-Anywhere/releases/tag/windows-setup-v1.0.0) 下载 ZIP 后完整解压，双击根目录的 `ContextAnywhere.exe` 即可运行。1.0.0 改进界面和交互，并支持新设备登录原 Cloudflare 账号后自动发现已有镜像，选择后恢复连接设置。程序和依赖放在同一个文件夹内，不需要安装，不写入卸载登记，也不需要另装 Node.js。
+[English](#english) · [项目介绍](../README.zh-CN.md)
 
-首次启动按 Windows 界面语言选择简体中文或 English，也可以在右上角手动切换；选择会保存到本机。切换不会清空已填写的选项或改变当前步骤。
+## 第一次部署
 
-需要 Windows 10/11 x64、已启用 R2 的 Cloudflare 账号，以及已安装并启用 AI Bridge的 Obsidian 知识库。
+需要 Windows 10/11 x64、已启用 R2 的 Cloudflare 账号，以及安装并启用了 AI Bridge 的 Obsidian 知识库。[下载 Windows ZIP](https://github.com/uid21/Context-Anywhere/releases?q=windows-setup) · [安装 AI Bridge](https://community.obsidian.md/plugins/ai-bridge)
 
-1. 选择知识库，确认 Cloudflare 已启用 R2，点击“检查并继续”。文件夹选择器支持地址栏粘贴路径；向导自动检查 AI Bridge，自定义配置目录和开通指引按需展开。
-2. 在默认浏览器中登录 Cloudflare 并授权。返回向导后选择账号，向导自动查找恢复记录：找到后可直接恢复已有部署；没有记录则继续全新部署。API Token 是另一种连接方式，浏览器授权后无需填写。
-3. 选择同步范围、设备名称、附件和同步选项。
-4. 全新部署会创建镜像并保存私有恢复记录；恢复已有部署时直接导入，无需重部署。点击“导入 Obsidian”，插件会保存连接设置，检查连接并开始同步。
-5. 默认选择 ChatGPT，依次复制 MCP 地址、名称和读取密码。第一步会同时打开默认浏览器；按每一步的说明填写并完成 OAuth 授权。选择“其他 AI”时，仅复制 MCP 地址和读取密码。地址、名称和授权密码的步骤入口始终可见，可直接切换。打开浏览器失败也不影响复制后续信息。JSON / Codex 配置可在“更多客户端配置”中展开。
+1. 完整解压 ZIP，运行 `ContextAnywhere.exe`。向导自带运行环境。选择本机知识库的根目录，点击「检查并继续」。如果你在 Obsidian 里改过配置目录名，展开对应选项填写。
+2. 在默认浏览器登录 Cloudflare，授权后回到向导选择账号。第一次使用时创建独立镜像。如果已经有镜像，先在列表中选择原部署。
+3. 选择允许同步的文件夹、笔记或整个知识库，预览笔记数。附件和双向同步都可以单独开启。同步单篇笔记需要 AI Bridge 0.4.3 或以上。若社区版暂未更新，退出 Obsidian，用 ZIP 的 `obsidian-plugin` 目录中的三个文件更新库里的插件目录，保留现有 `data.json`，再打开 Obsidian。
+4. 完成部署后，打开所选知识库，点击「导入 Obsidian」，再点「检查导入结果」。如果尚无同步记录，在 Obsidian 中点击 AI Bridge 的云上传图标同步一次。
+5. 点击「接入 AI」。给客户端填写以 `/mcp` 结尾的地址，读取密码只粘贴在**你自己镜像的 OAuth 授权页**。Gemini 在网页版 Connected Apps 添加 Custom app，Client ID 和 Client secret 留空；授权后可在聊天中输入 `@` 选中它。[Google 的账号与地区要求](https://support.google.com/gemini/answer/17209137)
 
-外观默认跟随 Windows，也可以在右上角选择浅色或深色。中文使用微软雅黑 UI，英文使用 Segoe UI；窗口和 EXE 使用多尺寸笔记图标。窄窗口自动收起左侧步骤栏，表单支持纵向滚动，底部导航保持可见。可以点击左侧已到达的前序步骤返回，保留填写内容和滚动位置。切页动效遵循 Windows 的动画开关，按钮不再缩放文字。
+## 找回已有镜像
 
-同步范围有“选择文件夹或笔记”和“整个知识库”两种模式；全库模式收起路径区，切回后保留可编辑的草稿。可以手填库内路径、选择文件夹/多篇笔记，或拖入文件；预览不会上传笔记。附件大小、定时间隔等只在对应选项开启时出现，数值支持加减按钮和上下方向键；填错时展开并聚焦对应字段。
+换电脑或本机加密记录打不开时，1.1 版向导首页可选「从 Cloudflare 找回已有部署」。登录原账号，选择对应部署，点击「恢复此部署」。只想给新 AI 接入时，到这里就可以复制凭据；要同步本机笔记，再选择这台电脑上的知识库和同步范围。恢复成功后向导会保留原先无法读取的本机文件副本。
 
-滚轮连续输入会平滑累计，反向滚动立即改变方向；多行输入框先滚内部，到边缘再滚页面。按钮、输入焦点、勾选、下拉弹层、展开收起均有短过渡；关闭 Windows 动画后立即切换。运行中锁定输入，同时保留滚动；未完成部署时禁用导入操作。
+如果列表为空，先核对账号。原先用命令行手动部署的镜像，可以选「连接手动部署」，填写当前 Worker 名称和 AI Bridge 的上传凭据。向导核对云资源和镜像身份后，将它加入该账号的恢复列表。
 
-## 换电脑恢复
+## 管理读取密码
 
-新电脑只需选择知识库、登录原 Cloudflare 账号，在自动发现的列表中选择部署并点击恢复。镜像地址、上传凭据、读取密码和资源信息会从账号内的私有恢复记录取回，再由新电脑保存自己的 DPAPI 记录。无须复制旧电脑的加密文件，也无须手动搬运密钥和地址。
+新镜像只有一把默认读取密码。忘了旧密码，或想给一个服务独立的密码时，登录原 Cloudflare 账号，在「凭据与新设备恢复」中选「新增读取密码」。可以给它取名，例如 Gemini 工作账号。原密码和已连接的客户端都可继续使用。接入 AI 时，选择要给这项服务的密码。所有读取密码都能读同一份镜像。
 
-恢复后可直接“复制上传凭据”“复制读取密码”，或选择这台设备的同步范围并“导入 Obsidian”。旧设备的知识库路径和同步范围不会自动套用到新库；需要下载镜像中的笔记时开启双向同步。恢复只检查已有资源和凭据，不重部署、不轮换密钥。
+- **从 Cloudflare 手动添加。** 在该 Worker 的 Secrets 里添加一个空闲编号，例如 `MIRROR_READ_KEY_17`。原始密码叫 `MIRROR_READ_KEY`，后续密码使用从 2 开始的整数后缀，可以跳号。每把使用独立的随机值。
+- **在别的设备找回。** 先登录原账号并选择镜像。在云端改过密码后，打开向导的凭据页即可刷新、选择并复制当前值，无需知道旧密码。离线时列表会标明来自本机缓存。
+- **停止使用一把密码。** 从列表中移除它，会停止用这把密码直接读取或发起新的授权。要停止已有 OAuth 访问，还需要在对应客户端解除授权。
 
-原电脑再次打开时直接使用本机记录。0.3.0 及更早版本尚未保存云端恢复记录：在持有原记录的电脑打开新版、登录 Cloudflare 并选择“保存新设备恢复记录”即可补存。若原本机记录和原密钥都已丢失、云端又没有恢复记录，向导无法从 Worker Secret 反向取回明文。
-
-如果镜像已经部署好而恢复记录保存暂时失败，当前电脑仍可使用；向导显示待重试状态，重试只保存恢复记录，不会重新创建或部署镜像。账号权限不足、记录损坏或凭据失效时保留现状并给出具体提示。
-
-## 更新 Obsidian 插件
-
-请从 [Obsidian 社区](https://community.obsidian.md/plugins/ai-bridge)安装并启用 AI Bridge。如果向导提示插件需要更新，先在 Obsidian 中更新，再重新打开知识库。也可以退出 Obsidian，用压缩包 `obsidian-plugin` 内的三个文件更新所选知识库的插件目录，保留原有 `data.json`。
-
-导入后，镜像地址、上传密钥和同步选项会保存在所选知识库的 AI Bridge 设置中。
-
-## R2 免费额度
-
-R2 标准存储每月包含 10 GB·月存储、100 万次 A 类操作（如写入、列举）和 1000 万次 B 类操作（如读取）的免费额度，出站流量免费。超出部分的费用和具体计费规则请查看 [Cloudflare 官方价格](https://developers.cloudflare.com/r2/pricing/)。
-
-## 数据与凭证
-
-每套部署都创建带随机后缀的独立 Worker、R2 和 OAuth KV，向导不会覆盖其他部署。重新部署会检查这些资源是否仍然存在，并补齐已经缺失的项。Cloudflare 部署凭证仅用于当前会话；镜像密钥和部署记录用 Windows DPAPI 加密，保存在 `%LOCALAPPDATA%\ContextAnywhereSetup\deployment.dpapi`，由当前 Windows 账号读取。移动程序目录不会丢失部署记录。
-
-首次部署另存一份恢复副本到账号内独立的 `context-anywhere-recovery-v1` KV 空间，包含两种镜像凭据、地址和资源标识，不含笔记、本机路径或 Cloudflare 登录令牌。恢复空间不绑定到镜像 Worker，AI/MCP 和镜像凭据无法访问它。它由 Cloudflare 提供静态加密和 HTTPS 传输；拥有该账号 KV 读取权限的管理员可以读取恢复副本。这是可恢复备份，不是端到端加密保险库；Worker Secret 自身仍不支持明文读回。
-
-读取密码只在镜像授权页面输入；导出的连接说明不含密钥。删除程序文件夹不会删除知识库、云端资源或部署记录。程序尚未签名，Windows 可能显示未知发布者提示。
+首次登记恢复后，Worker 会在成功的 REST 或 MCP 访问后更新加密密码清单。镜像完全空闲时，向导的在线刷新会触发即时更新。清单存放在镜像的 R2 桶，解密材料和部署索引存放在账号私有的恢复 KV。笔记、MCP 工具与导出的连接说明均不提供密码。当前 Windows 设备使用 DPAPI 保护本机缓存。
 
 ## English
 
-Download the ZIP from the [Windows setup 1.0.0 release](https://github.com/uid21/Context-Anywhere/releases/tag/windows-setup-v1.0.0), extract it completely, and run `ContextAnywhere.exe`. Version 1.0.0 improves the interface and interactions, and lets a new device discover and restore an existing mirror's connection settings after sign-in to the original Cloudflare account. The portable app includes its own Node.js runtime. It needs Windows 10/11 x64, a Cloudflare account with R2 enabled, and an Obsidian vault with AI Bridge installed and enabled.
+### First setup
 
-Setup initially follows your Windows display language (Chinese or English). Use the language selector at the top right to switch at any time between operations. The choice is remembered; your entries, selections, and current step are preserved. Light, dark, and system themes are available beside it.
+Use Windows 10/11 x64, a Cloudflare account with R2 enabled and an Obsidian vault with AI Bridge installed and enabled. [Download the portable ZIP](https://github.com/uid21/Context-Anywhere/releases?q=windows-setup) · [Install AI Bridge](https://community.obsidian.md/plugins/ai-bridge)
 
-1. Choose your vault, confirm R2 is enabled, and select **Check and continue**. Setup checks AI Bridge automatically. Expand the custom configuration folder or setup guides only when needed.
-2. Sign in to Cloudflare in your default browser, authorize, then choose an account. Setup automatically discovers private recovery records. Restore a listed deployment, or continue a new deployment if none exists. API Token is an alternative; leave it empty after browser authorization.
-3. Choose folders or individual notes, or sync the entire vault. Paths can be typed, selected with a picker, or added by dragging files and folders; switching to the entire vault preserves your custom-path draft. Choose this device's name, attachment limits, and sync options. Previewing does not upload notes. Two-way sync is optional.
-4. New deployment creates the mirror and its private recovery record; restoration uses the existing mirror without redeploying. Select **Import into Obsidian**, keep Obsidian open, and check the import result.
-5. Copy the MCP URL, name, and read password to connect ChatGPT, or choose **Other AI**. Follow the instructions to complete OAuth in your browser. Every connection step stays accessible even if opening the browser fails. JSON and Codex configuration are under **More client configurations**.
+1. Extract the entire ZIP and open `ContextAnywhere.exe`. It includes its own runtime. Select the root of your local vault and choose **Check and continue**. If you use a custom Obsidian configuration folder, enter its name.
+2. Sign in to Cloudflare in your browser and choose the account in the wizard. Create a new mirror on first use, or select your existing deployment.
+3. Select folders, individual notes or the whole vault. Preview the count before continuing. Attachments and two-way sync are optional. Individual notes require AI Bridge 0.4.3 or later. If the community update is pending, close Obsidian and copy the three files from the ZIP’s `obsidian-plugin` folder into the vault’s AI Bridge plugin folder. Keep your existing `data.json` and reopen Obsidian.
+4. Open that vault, select **Import into Obsidian** and check the import result. If there is no sync record yet, select the plugin’s cloud upload icon in Obsidian.
+5. Select **Connect your AI**. Give the client the URL ending in `/mcp` and enter the read password on **your mirror’s OAuth authorization page**. In Gemini on the web, open Connected Apps and add a custom app. Leave Client ID and Client secret blank. After authorization, use `@` to select your app in chat. [Google’s availability requirements](https://support.google.com/gemini/answer/17209137)
 
-Update AI Bridge through the Obsidian community plugins page when requested. Alternatively, close Obsidian and copy the three files from `obsidian-plugin` into that vault's plugin folder, preserving its existing `data.json`.
+### Restore an existing mirror
 
-On a new computer, sign in to the original Cloudflare account and restore the discovered deployment. Setup retrieves its URL, upload credential, read password and resource identities, then writes a new DPAPI record for this Windows user. Choose the new device's sync scope before import; old local paths and scope are not silently reused. Both credentials can be copied when needed. Returning to the original device uses its local record without signing in again.
+On a new computer, or when Windows cannot open the local encrypted record, choose the Cloudflare recovery option on the first page of setup 1.1. Sign in to the original account, select the deployment and restore it. You can copy credentials and connect an AI immediately. To sync locally, choose the vault on this computer and select its scope. Setup retains a copy of an unreadable local record when replacing it after recovery.
 
-Version 0.3.0 and older deployments need a one-time **Save new-device recovery record** operation on a computer that still has the original record, after Cloudflare sign-in. Lost credentials cannot be read back from Worker Secrets. If saving recovery fails after a healthy deployment, this device can still work; retry only the recovery write.
+If no deployment is listed, check the account. To register a mirror deployed manually, choose the manual deployment option, enter its Worker name and the upload credential from AI Bridge. Setup verifies the resources and the live mirror before adding it to the account’s recovery list.
 
-Recovery copies live in the account-private `context-anywhere-recovery-v1` KV namespace, separate from notes and OAuth data and never bound to the mirror Worker. Cloudflare encrypts KV at rest and in transit. Authorized account KV administrators can read this copy; it is not an end-to-end encrypted vault. No Cloudflare login token, note content or local vault path is archived. Scrolling, controls, dropdowns and expandable sections have short transitions that follow the Windows animation preference.
+### Manage read passwords
 
-Each deployment uses separate Worker, R2, and OAuth KV resources. Cloudflare credentials stay in the current session. Mirror keys and deployment records use Windows DPAPI in `%LOCALAPPDATA%\ContextAnywhereSetup\deployment.dpapi`. Exported connection instructions contain no passwords. Deleting the app folder does not delete your vault, cloud resources, or deployment record. The app is unsigned.
+New mirrors start with one read password. If you forgot it or want a separate password for one service, sign in to Cloudflare, open **Credentials and new-device recovery** and add a read password. Give it a recognizable name, such as “Gemini work account”. Existing passwords and connected clients continue to work. Choose the password to use when connecting each AI. Every read password covers the same mirror.
 
-R2 Standard includes 10 GB-month of storage, 1 million Class A operations, and 10 million Class B operations per month, with free egress. Check [Cloudflare pricing](https://developers.cloudflare.com/r2/pricing/) for usage above those allowances.
+- **To add a password in Cloudflare**, add a Worker secret with an unused name such as `MIRROR_READ_KEY_17`. The original is `MIRROR_READ_KEY`. Additional passwords take numeric suffixes starting at 2 and can skip numbers. Generate a distinct random value for each secret.
+- **To retrieve a password on another computer**, sign in to the original account and select the mirror. The credentials panel refreshes the list from Cloudflare, including manual changes. You can select and copy a password without entering its previous value. When offline, setup identifies the locally cached list.
+- **To retire a password**, remove it in the wizard. This stops direct reads and future authorizations using that password. Unlink the OAuth grant in the client to stop an existing connection.
+
+Once recovery is registered, the Worker refreshes its encrypted password list after successful REST or MCP traffic. On an idle mirror, an online wizard refresh triggers the update. The ciphertext lives in the mirror’s R2 bucket. The account-private recovery KV holds the decryption material and deployment index. The Windows cache is protected with DPAPI. Notes, MCP tools and exported setup instructions do not expose passwords.

@@ -1,6 +1,6 @@
 {
   "name": "obsidian-ai-bridge",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "type": "module",
   "private": true,
   "license": "PolyForm-Noncommercial-1.0.0",

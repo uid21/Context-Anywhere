@@ -44,8 +44,10 @@ namespace ContextAnywhereSetup {
         if (!String.IsNullOrWhiteSpace(title)) Marshal.ThrowExceptionForHR(dialog.SetTitle(title));
         if (!String.IsNullOrWhiteSpace(initialPath) && Directory.Exists(initialPath.Trim())) {
           var shellItemId = typeof(IShellItem).GUID;
-          Marshal.ThrowExceptionForHR(SHCreateItemFromParsingName(Path.GetFullPath(initialPath.Trim()), IntPtr.Zero, ref shellItemId, out initialFolder));
-          Marshal.ThrowExceptionForHR(dialog.SetFolder(initialFolder));
+          // Explorer can lose access to a previously available drive between these calls.
+          // The starting folder is optional; still offer the full picker in that case.
+          if (SHCreateItemFromParsingName(Path.GetFullPath(initialPath.Trim()), IntPtr.Zero, ref shellItemId, out initialFolder)>=0 && initialFolder!=null)
+            dialog.SetFolder(initialFolder);
         }
         return dialog;
       } catch {

@@ -9,6 +9,9 @@ const CALLBACK = 'http://localhost:8976/oauth/callback';
 const SCOPES = 'account:read user:read workers:write workers_kv:write workers_scripts:write';
 const AUTH = 'https://dash.cloudflare.com/oauth2';
 export const API = 'https://api.cloudflare.com/client/v4';
+export function validBearer(token) {
+  return typeof token === 'string' && token.length >= 20 && token.length <= 16384 && /^[A-Za-z0-9._~+/-]+=*$/.test(token);
+}
 
 export async function login(onToken) {
   const verifier = randomBytes(48).toString('base64url');
@@ -53,14 +56,17 @@ export async function login(onToken) {
 
 export class Cloudflare {
   constructor(token, fetcher = fetch) { this.token = token; this.fetcher = fetcher; }
-  async request(path, method = 'GET', body, { missing = false, raw = false, envelope = false } = {}) {
-    const headers = { Authorization: `Bearer ${this.token}`, 'User-Agent': 'Context-Anywhere-Setup/1.0.0' };
-    if (body && !(body instanceof FormData)) { headers['Content-Type'] = 'application/json'; body = JSON.stringify(body); }
+  async request(path, method = 'GET', body, { missing = false, raw = false, envelope = false, maxBytes = 32 * 1024 } = {}) {
+    const headers = { Authorization: `Bearer ${this.token}`, 'User-Agent': 'Context-Anywhere-Setup/1.1.0' };
+    if (body && !(body instanceof FormData)) {
+      headers['Content-Type'] = body instanceof Uint8Array ? 'application/octet-stream' : 'application/json';
+      if (!(body instanceof Uint8Array)) body = JSON.stringify(body);
+    }
     const response = await this.fetcher(`${API}${path}`, { method, headers, body, signal: AbortSignal.timeout(120_000), redirect: 'error' });
     if (missing && response.status === 404) return null;
     if (raw && response.ok) {
       const value = await response.text();
-      if (Buffer.byteLength(value) > 32 * 1024) throw new SetupError('恢复记录超过允许的大小。', 'The recovery record exceeds the allowed size.');
+      if (Buffer.byteLength(value) > maxBytes) throw new SetupError('恢复记录超过允许的大小。', 'The recovery record exceeds the allowed size.');
       return value;
     }
     const data = await response.json().catch(() => ({}));
@@ -101,6 +107,35 @@ export function resourceNames(label, id) {
   if (!/^[a-f0-9]{8}$/.test(id)) throw new SetupError("安装标识无效。", "The setup identifier is invalid.");
   const worker = `${label}-${id}`;
   return { worker, bucket: `${worker}-notes`, kvTitle: `${worker}-oauth` };
+}
+
+export function readSlot(kind) {
+  const n = kind === 'read' ? 1 : /^read[1-9][0-9]*$/.test(kind) ? Number(kind.slice(4)) : 0;
+  return Number.isSafeInteger(n) && (kind === 'read' || n >= 2) ? n : 0;
+}
+export const readKind = n => n === 1 ? 'read' : 'read' + n;
+export const bindingName = kind => kind === 'write' ? 'MIRROR_TOKEN' : kind === 'read' ? 'MIRROR_READ_KEY' : 'MIRROR_READ_KEY_' + readSlot(kind);
+
+// Existing Workers retain their actual Cloudflare secrets, including changes made
+// on another device. Do not send local passwords in a code-only update.
+export async function uploadWorker(cf, state, module, existing, previous = {}) {
+  const metadata = {
+    main_module: 'index.js', compatibility_date: '2026-08-29',
+    compatibility_flags: ['nodejs_compat', 'global_fetch_strictly_public'],
+    tags: [...new Set([...(previous.tags || []), `context-anywhere-setup:${state.id}`])], observability: previous.observability || { enabled: false },
+    ...(existing ? { keep_bindings: [...new Set(['secret_text', ...(previous.bindings || []).map(b => b.type)])] } : {}),
+    bindings: [
+      { type: 'r2_bucket', name: 'AI_MIRROR', bucket_name: state.names.bucket },
+      { type: 'kv_namespace', name: 'OAUTH_KV', namespace_id: state.kvId },
+      { type: 'version_metadata', name: 'CF_VERSION_METADATA' },
+      ...(existing ? [] : Object.entries(state.secrets).filter(([kind]) => kind === 'write' || readSlot(kind)).map(([kind, text]) =>
+        ({ type: 'secret_text', name: bindingName(kind), text }))),
+    ],
+  };
+  const form = new FormData();
+  form.set('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+  form.set('index.js', new Blob([module], { type: 'application/javascript+module' }), 'index.js');
+  await cf.request(`/accounts/${state.accountId}/workers/scripts/${state.names.worker}`, 'PUT', form);
 }
 
 export async function deploy({ cf, state, module, save, progress, fetcher = fetch, saveRecovery = async () => {} }) {
@@ -148,22 +183,8 @@ export async function deploy({ cf, state, module, save, progress, fetcher = fetc
     if (!namespace?.id) throw new SetupError("Cloudflare 未返回新建 KV 的标识，部署尚未完成，请重试。", "Cloudflare did not return an identifier for the new KV storage. Deployment is incomplete. Try again.");
     state.kvId = namespace.id; await save();
   }
-  progress(t("部署公开版 Worker 和两把独立密钥", "Deploying the public Worker build and two separate keys"));
-  const metadata = {
-    main_module: 'index.js', compatibility_date: '2026-08-29',
-    compatibility_flags: ['nodejs_compat', 'global_fetch_strictly_public'],
-    tags: [`context-anywhere-setup:${id}`], observability: { enabled: false },
-    bindings: [
-      { type: 'r2_bucket', name: 'AI_MIRROR', bucket_name: names.bucket },
-      { type: 'kv_namespace', name: 'OAUTH_KV', namespace_id: state.kvId },
-      { type: 'secret_text', name: 'MIRROR_TOKEN', text: secrets.write },
-      { type: 'secret_text', name: 'MIRROR_READ_KEY', text: secrets.read },
-    ],
-  };
-  const form = new FormData();
-  form.set('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-  form.set('index.js', new Blob([module], { type: 'application/javascript+module' }), 'index.js');
-  await cf.request(`${base}/workers/scripts/${names.worker}`, 'PUT', form);
+  progress(t("部署公开版 Worker 并配置独立凭据", "Deploying the public Worker build and configuring credentials"));
+  await uploadWorker(cf, state, module, !!existing, existing || {});
   state.workerUploaded = true; await save();
   await cf.request(`${base}/workers/scripts/${names.worker}/subdomain`, 'POST', { enabled: true, previews_enabled: false });
   state.workerUrl = `https://${names.worker}.${domain.subdomain}.workers.dev`; await save();
@@ -173,9 +194,9 @@ export async function deploy({ cf, state, module, save, progress, fetcher = fetc
   for (const delay of [0, 3000, 7000, 15000, 25000]) {
     if (delay) await new Promise(r => setTimeout(r, delay));
     try {
-      const health = await fetcher(`${state.workerUrl}/health`, { headers: { Authorization: `Bearer ${secrets.write}` }, signal: AbortSignal.timeout(15_000) });
+      const health = await fetcher(`${state.workerUrl}/health`, { headers: { Authorization: `Bearer ${secrets.write}` }, redirect: 'error', signal: AbortSignal.timeout(15_000) });
       if (!health.ok || (await health.json()).service !== 'obsidian-ai-mirror') throw new SetupError("连接尚未就绪", "The connection is not ready yet");
-      const discovery = await fetcher(`${state.workerUrl}/.well-known/oauth-authorization-server`, { signal: AbortSignal.timeout(15_000) });
+      const discovery = await fetcher(`${state.workerUrl}/.well-known/oauth-authorization-server`, { redirect: 'error', signal: AbortSignal.timeout(15_000) });
       if (!discovery.ok || !(await discovery.json()).authorization_endpoint) throw new SetupError("OAuth 入口尚未就绪", "The OAuth endpoint is not ready yet");
       healthy = true; break;
     } catch (error) { last = error; }

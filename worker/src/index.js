@@ -5,6 +5,7 @@ import {
 import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
 import { z } from "zod";
 import { noteReferencesAsset } from "./references.js";
+import { readKeys, refreshReadKeys, syncReadKeys } from "./read-keys.js";
 import { authorizationRedirect, escapeHtml, html, OAUTH_REFRESH_TOKEN_TTL } from "./oauth-response.js";
 
 const JSON_HEADERS = {
@@ -78,7 +79,7 @@ function authorizationErrorRedirect(oauthRequest, error, description) {
 function renderAuthorizationPage(request, client, csrf, error = "", status = 200) {
   const url = new URL(request.url);
   const action = escapeHtml(`${url.pathname}${url.search}`);
-  const clientName = escapeHtml(client.clientName || "ChatGPT MCP client");
+  const clientName = escapeHtml(client.clientName || "MCP client");
   const errorBlock = error ? `<p class="error" role="alert">${escapeHtml(error)}</p>` : "";
   const body = `<!doctype html>
 <html lang="zh-CN">
@@ -133,8 +134,10 @@ function bearer(request) {
 
 function authorizationMode(request, env) {
   const token = bearer(request);
-  if (env.MIRROR_TOKEN && token === env.MIRROR_TOKEN) return "write";
-  if (env.MIRROR_READ_KEY && token === env.MIRROR_READ_KEY) return "read";
+  if (!token) return null;
+  const read = readKeys(env).find(key => key.value === token);
+  if (token === env.MIRROR_TOKEN) return read ? null : "write";
+  if (read) return read.slot;
   return null;
 }
 
@@ -436,7 +439,8 @@ function createMirrorServer(env) {
 
 async function handleRest(request, env, url, auth) {
   if (request.method === "GET" && url.pathname === "/health") {
-    return json({ ok: true, service: "obsidian-ai-mirror", mcp: "/mcp" });
+    return json({ ok: true, service: "obsidian-ai-mirror", mcp: "/mcp", readKeySlots: 2, readKeySyncVersion: 1,
+      ...(typeof auth === "number" ? { readKeySlot: auth } : {}) });
   }
 
   if (request.method === "GET" && url.pathname === "/sync/manifest") {
@@ -659,7 +663,7 @@ async function handleAuthorization(request, env) {
   const csrf = String(form.get("csrf") || "");
   const csrfCookie = cookieValue(request, CSRF_COOKIE);
   if (!csrf || !csrfCookie || !(await secureSecretEqual(csrf, csrfCookie))) {
-    return html("<h1>授权页面已失效，请返回 ChatGPT 重试</h1>", 403);
+    return html("<h1>授权页面已失效，请返回 MCP 客户端重试</h1>", 403);
   }
 
   if (form.get("decision") === "deny") {
@@ -667,7 +671,9 @@ async function handleAuthorization(request, env) {
   }
 
   const password = String(form.get("password") || "");
-  if (!env.MIRROR_READ_KEY || !(await secureSecretEqual(password, env.MIRROR_READ_KEY))) {
+  const matches = await Promise.all(readKeys(env).filter(key => key.value !== env.MIRROR_TOKEN)
+    .map(key => secureSecretEqual(password, key.value)));
+  if (!matches.includes(true)) {
     return renderAuthorizationPage(request, client, crypto.randomUUID(), "读取密码不正确。", 401);
   }
 
@@ -676,7 +682,7 @@ async function handleAuthorization(request, env) {
     const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
       request: oauthRequest,
       userId: "obsidian-vault-owner",
-      metadata: { clientName: client.clientName || "ChatGPT MCP client" },
+      metadata: { clientName: client.clientName || "MCP client" },
       scope: grantedScopes,
       props: { access: "read" },
     });
@@ -690,7 +696,7 @@ async function handleAuthorization(request, env) {
 }
 
 const mcpApiHandler = {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname !== "/mcp") return new Response("Not Found", { status: 404 });
     // Retain the previous adapter's browser-origin and local-host protections.
@@ -702,21 +708,29 @@ const mcpApiHandler = {
       ...localhostAllowedOrigins(), ...(workersDev ? [url.hostname] : []),
     ]);
     if (hostRejection || originRejection) return hostRejection || originRejection;
-    return createMcpHandler(() => createMirrorServer(env), {
+    const response = await createMcpHandler(() => createMirrorServer(env), {
       maxRequestBodySize: MAX_MCP_REQUEST_BYTES,
       legacy: "stateless",
     }).fetch(request);
+    if (response.ok) refreshReadKeys(env, ctx);
+    return response;
   },
 };
 
 const defaultHandler = {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === "/authorize") return handleAuthorization(request, env);
 
     const auth = authorizationMode(request, env);
+    if (url.pathname === "/admin/read-keys/sync") {
+      const status = await syncReadKeys(request, env, auth === "write");
+      return json({ ok: status === 200 }, status, status === 405 ? { allow: "POST" } : {});
+    }
     if (!auth) return json({ error: "unauthorized" }, 401);
-    return handleRest(request, env, url, auth);
+    const response = await handleRest(request, env, url, auth);
+    if (response.ok) refreshReadKeys(env, ctx);
+    return response;
   },
 };
 

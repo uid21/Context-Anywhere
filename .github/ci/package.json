@@ -4,7 +4,7 @@
   "type": "module",
   "description": "Unbundled official GitHub SDKs, installed from this lockfile and run with the verified project Node runtime.",
   "engines": {
-    "node": "22.23.4"
+    "node": "22.23.5"
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",

@@ -60,7 +60,7 @@ function child(file, env) {
 }
 
 test('CI network SDKs and built-in fetch resolve the patched runtime and package', () => {
-  assert.deepEqual(verifyRuntime(), { node: '22.23.4', builtinUndici: '6.29.1', sdkUndici: '6.29.1', copies: 1 });
+  assert.deepEqual(verifyRuntime(), { node: '22.23.5', builtinUndici: '6.29.1', sdkUndici: '6.29.1', copies: 1 });
 });
 
 test('actual GitHub SDK handles a hostile encoding chain without crashing, then still serves a normal request', { timeout: 15000 }, async t => {
