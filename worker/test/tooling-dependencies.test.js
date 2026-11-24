@@ -4,11 +4,9 @@ import { createRequire, Module } from 'node:module';
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import path from 'node:path';
-import { secureMiniflare, securedMiniflareHash, externalizeMiniflareAddresses } from '../scripts/secure-miniflare.mjs';
-import { sha256 } from '../scripts/secure-wrangler.mjs';
 
 const require = createRequire(import.meta.url);
-const entry = secureMiniflare();
+const entry = require.resolve('miniflare');
 const source = readFileSync(entry, 'utf8');
 const probe = new Module(entry);
 probe.filename = entry;
@@ -16,12 +14,9 @@ probe.paths = Module._nodeModulePaths(path.dirname(entry));
 probe._compile(source + '\nmodule.exports.securityProbe = { address: require_ip_address(), socks: require_socksclient() };', entry);
 const { address, socks } = probe.exports.securityProbe;
 
-test('Miniflare executes the fixed address implementation and repair fails on unreviewed bytes', () => {
-  assert.equal(sha256(source), securedMiniflareHash);
-  assert.equal(address, require('ip-address'));
+test('Miniflare bundles and executes the fixed address implementation', () => {
+  assert.match(source, /ip-address@10\.7\.6\//);
   assert.equal(source.includes('ip-address@9.0.5'), false);
-  assert.equal(secureMiniflare({ apply: true }), entry);
-  assert.throws(() => externalizeMiniflareAddresses('unexpected'), /Unrecognized/);
   assert.equal(new address.Address6('a00::1').isInSubnet(new address.Address4('10.0.0.0/8')), false);
   assert.equal(new address.Address4('10.0.0.1').isInSubnet(new address.Address6('::/0')), false);
   assert.equal(new address.Address4('10.0.0.1').isInSubnet(new address.Address4('10.0.0.0/8')), true);
@@ -30,7 +25,7 @@ test('Miniflare executes the fixed address implementation and repair fails on un
   }
 });
 
-test('Miniflare SOCKS code still negotiates IPv4 targets and decodes IPv6 replies after replacement', { timeout: 10000 }, async t => {
+test('Miniflare SOCKS code negotiates IPv4 targets and decodes IPv6 replies', { timeout: 10000 }, async t => {
   const sockets = new Set();
   let target;
   const server = createServer(socket => {

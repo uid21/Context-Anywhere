@@ -10,7 +10,7 @@ import Module, { createRequire } from 'node:module';
 import { brotliCompressSync } from 'node:zlib';
 import test from 'node:test';
 import { assertSafeRuntime } from '../../scripts/check-runtime.mjs';
-import { secureWrangler, securedHash, sha256, externalizeUndici } from '../scripts/secure-wrangler.mjs';
+import { secureWrangler } from '../scripts/secure-wrangler.mjs';
 
 const require = createRequire(import.meta.url);
 const miniflareRequire = createRequire(require.resolve('miniflare'));
@@ -33,24 +33,20 @@ async function listen(t, server) {
   return server.address().port;
 }
 
-test('all THREE actual Wrangler factories and Miniflare load the same fixed package', () => {
+test('the published Wrangler CLI and Miniflare load the same fixed Undici', () => {
   const cli = secureWrangler();
   const source = readFileSync(cli, 'utf8');
-  assert.equal(sha256(source), securedHash);
-  assert.equal(source.includes('undici@7.29.0'), false);
-  assert.equal(miniflareRequire('undici/package.json').version, '7.30.1');
-  // Expose the installed CLI's existing factories only in memory, without launching its main.
+  assert.doesNotMatch(source, /node_modules\/\.pnpm\/undici@/);
+  assert.equal(miniflareRequire('undici/package.json').version, '7.30.2');
+  // Read the installed CLI's HTTP client without invoking its main.
   const probe = new Module(cli);
   probe.filename = cli;
   probe.paths = Module._nodeModulePaths(require('node:path').dirname(cli));
-  probe._compile(source + '\nmodule.exports.securityCopies = [require_undici(), (init_dist14(), require_undici2()), (init_dist15(), require_undici3())];', cli);
-  assert.equal(probe.exports.securityCopies.length, 3);
-  for (const copy of probe.exports.securityCopies) assert.equal(copy, undici);
+  probe._compile(source + '\nmodule.exports.securityUndici = undici;', cli);
+  assert.equal(probe.exports.securityUndici, undici);
 });
 
-test('repair is idempotent and refuses unexpected bytes; obsolete runtimes fail closed', () => {
-  assert.equal(secureWrangler({ apply: true }), secureWrangler());
-  assert.throws(() => externalizeUndici('unrecognized bundle'), /Unrecognized/);
+test('obsolete runtimes fail closed', () => {
   for (const version of ['22.23.4', '24.22.2', '26.13.0', '20.19.0']) assert.throws(() => assertSafeRuntime(version), /security runtime/);
   for (const version of ['22.23.5', '24.22.3', '26.13.1']) assert.doesNotThrow(() => assertSafeRuntime(version));
 });

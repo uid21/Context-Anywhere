@@ -94,7 +94,7 @@ namespace ContextAnywhereSetup {
       {"请确认 Cloudflare 账号已启用 R2。","Confirm that R2 is enabled in your Cloudflare account."},
       {"部署向导已经打开，请返回那个窗口继续。","Setup is already open. Return to that window to continue."},
       {"Context Anywhere · 部署向导","Context Anywhere · Setup"},
-      {"Windows 部署向导 1.1.0","Windows Setup 1.1.0"},
+      {"Windows 部署向导 1.1.1","Windows Setup 1.1.1"},
       {"准备好你的知识库","Prepare your vault"},
       {"连接 Cloudflare","Connect Cloudflare"},
       {"选择同步范围","Choose what to sync"},

@@ -43,7 +43,7 @@ function publicState() {
     imported: !!state.imported, workersSubdomain: state.workersSubdomain,
     readKeys: state.deployed ? publicReadKeys(state) : [], pendingKeyUpdate: state.pendingKeyUpdate?.kind || '', pendingKeyAction: state.pendingKeyUpdate ? state.pendingKeyUpdate.action || 'rotate' : '',
     recovered: !!state.recovered, recoverySaved: !!state.recoverySaved, recoveryWarning: recoveryWarning ? redact(recoveryWarning.message) : '', recoveryAccountId, recoveryChecked, recoveryChoice, recoveries,
-    authenticated: !!cf, authMethod, accounts, loginError: loginError ? redact(loginError.message || loginError) : '', version: '1.1.0' };
+    authenticated: !!cf, authMethod, accounts, loginError: loginError ? redact(loginError.message || loginError) : '', version: '1.1.1' };
 }
 function localSecret(kind) {
   if (state.pendingKeyUpdate?.kind === kind) throw new SetupError('这把读取密码正在更新，请先继续上次密码更新。', 'This read password is being updated. Resume the pending update first.');

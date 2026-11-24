@@ -25,7 +25,7 @@ function run(args, env, input = '') {
   });
 }
 
-test('manual CLI creates R2/KV and uploads a secret through real HTTP with the repaired client', { timeout: 60000 }, async t => {
+test('manual CLI creates R2/KV and uploads a secret through real HTTP with the pinned client', { timeout: 60000 }, async t => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'ca-cli-security-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const config = path.join(directory, 'wrangler.toml');

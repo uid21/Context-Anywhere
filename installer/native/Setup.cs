@@ -22,9 +22,9 @@ using System.Runtime.InteropServices;
 [assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8")]
 [assembly: AssemblyTitle("Context Anywhere")]
 [assembly: AssemblyProduct("Context Anywhere Windows Setup")]
-[assembly: AssemblyVersion("1.1.0.0")]
-[assembly: AssemblyFileVersion("1.1.0.0")]
-[assembly: AssemblyInformationalVersion("1.1.0")]
+[assembly: AssemblyVersion("1.1.1.0")]
+[assembly: AssemblyFileVersion("1.1.1.0")]
+[assembly: AssemblyInformationalVersion("1.1.1")]
 namespace ContextAnywhereSetup {
   static class Program {
     [DllImport("user32.dll")] static extern bool AllowSetForegroundWindow(int processId);
@@ -134,7 +134,7 @@ namespace ContextAnywhereSetup {
       var rail=new Grid();rail.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});rail.RowDefinitions.Add(new RowDefinition{Height=new GridLength(1,GridUnitType.Star)});rail.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});sidebar.Child=rail;
       var brand=new StackPanel();rail.Children.Add(brand);brand.Children.Add(new Image{Source=Icon,Width=48,Height=48,HorizontalAlignment=HorizontalAlignment.Left,Margin=new Thickness(0,0,0,14)});
       logo.Text="Context\nAnywhere";logo.FontFamily=new FontFamily("Segoe UI Variable Display, Segoe UI");logo.FontSize=23;logo.FontWeight=FontWeights.SemiBold;logo.LineHeight=29;logo.SetResourceReference(TextBlock.ForegroundProperty,"Ink");brand.Children.Add(logo);
-      brand.Children.Add(Label("Windows 部署向导 1.1.0",12,true));
+      brand.Children.Add(Label("Windows 部署向导 1.1.1",12,true));
       var steps=new StackPanel{Margin=new Thickness(0,35,0,0)};Grid.SetRow(steps,1);rail.Children.Add(steps);
       var names=new[]{"准备好你的知识库","连接 Cloudflare","选择同步范围","部署与导入","接入你的 AI"};
       for(int i=0;i<names.Length;i++){

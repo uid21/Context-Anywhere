@@ -57,7 +57,7 @@ export async function login(onToken) {
 export class Cloudflare {
   constructor(token, fetcher = fetch) { this.token = token; this.fetcher = fetcher; }
   async request(path, method = 'GET', body, { missing = false, raw = false, envelope = false, maxBytes = 32 * 1024 } = {}) {
-    const headers = { Authorization: `Bearer ${this.token}`, 'User-Agent': 'Context-Anywhere-Setup/1.1.0' };
+    const headers = { Authorization: `Bearer ${this.token}`, 'User-Agent': 'Context-Anywhere-Setup/1.1.1' };
     if (body && !(body instanceof FormData)) {
       headers['Content-Type'] = body instanceof Uint8Array ? 'application/octet-stream' : 'application/json';
       if (!(body instanceof Uint8Array)) body = JSON.stringify(body);
